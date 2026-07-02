@@ -10,12 +10,34 @@ const STATUS_CLASS = {
   rejeitado: "status-pill st-rejeitado",
 };
 
+// Classe de cor para o status de um job de atualização.
+function statusClasse(status) {
+  if (status === "concluido") return "st-aprovado";
+  if (status === "erro") return "st-rejeitado";
+  if (status === "ignorado") return "st-desativado";
+  return "st-pendente"; // solicitado/baixando/mesclando
+}
+
+// Resumo legível dos contadores do merge.
+function resumoContadores(c) {
+  if (!c || typeof c !== "object" || Object.keys(c).length === 0) return "—";
+  const fmt = (n) => Number(n).toLocaleString("pt-BR");
+  const partes = [];
+  if (c.empresas != null) partes.push(`${fmt(c.empresas)} empresas`);
+  if (c.estabelecimentos != null) partes.push(`${fmt(c.estabelecimentos)} estabelec.`);
+  if (c.socios_novos != null) partes.push(`${fmt(c.socios_novos)} sócios novos`);
+  if (c.dados_simples != null) partes.push(`${fmt(c.dados_simples)} simples`);
+  return partes.join(" · ") || "—";
+}
+
 export default function AdminPanel({ nome }) {
   const [tab, setTab] = useState("usuarios");
   const [usuarios, setUsuarios] = useState([]);
   const [convites, setConvites] = useState([]);
   const [logs, setLogs] = useState([]);
   const [logTipo, setLogTipo] = useState("busca");
+  const [atualiz, setAtualiz] = useState({ rows: [], rodando: null });
+  const [forcar, setForcar] = useState(false);
   const [msg, setMsg] = useState("");
   const [novoUser, setNovoUser] = useState({ nome: "", email: "", password: "", role: "user" });
 
@@ -34,12 +56,38 @@ export default function AdminPanel({ nome }) {
     const d = await (await fetch(`/api/admin/logs?tipo=${t}`)).json();
     setLogs(d.rows || []);
   }
+  async function carregarAtualiz() {
+    const d = await (await fetch("/api/admin/atualizar")).json();
+    setAtualiz({ rows: d.rows || [], rodando: d.rodando || null });
+  }
 
   useEffect(() => { carregarUsuarios(); }, []);
   useEffect(() => {
     if (tab === "convites") carregarConvites();
     if (tab === "logs") carregarLogs(logTipo);
+    if (tab === "atualizar") carregarAtualiz();
   }, [tab, logTipo]);
+
+  // Enquanto houver atualização rodando, atualiza o status a cada 15s.
+  useEffect(() => {
+    if (tab !== "atualizar") return;
+    const t = setInterval(carregarAtualiz, 15000);
+    return () => clearInterval(t);
+  }, [tab]);
+
+  async function dispararAtualizacao() {
+    if (atualiz.rodando) return;
+    if (!confirm("Iniciar a atualização da base com o mês mais recente? O processo roda no servidor e pode levar algumas horas.")) return;
+    const res = await fetch("/api/admin/atualizar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ forcar }),
+    });
+    const d = await res.json();
+    if (!res.ok) return flash("Erro: " + (d.error || res.status));
+    flash("Atualização enfileirada. Acompanhe o status abaixo.");
+    carregarAtualiz();
+  }
 
   function flash(t) {
     setMsg(t);
@@ -120,7 +168,7 @@ export default function AdminPanel({ nome }) {
       {msg && <div className="alert alert-info" style={{ marginTop: 16 }}>{msg}</div>}
 
       <div className="admin-tabs">
-        {[["usuarios", "Usuários"], ["convites", "Convites"], ["logs", "Logs"]].map(([k, t]) => (
+        {[["usuarios", "Usuários"], ["convites", "Convites"], ["logs", "Logs"], ["atualizar", "Atualização da base"]].map(([k, t]) => (
           <button key={k} className={"admin-tab" + (tab === k ? " active" : "")} onClick={() => setTab(k)}>{t}</button>
         ))}
       </div>
@@ -195,6 +243,61 @@ export default function AdminPanel({ nome }) {
                   );
                 })}
                 {convites.length === 0 && <tr><td className="empty" colSpan={5}>Nenhum convite gerado.</td></tr>}
+              </tbody>
+            </table>
+          </div></div>
+        </>
+      )}
+
+      {tab === "atualizar" && (
+        <>
+          <div className="table-card" style={{ padding: 20, marginBottom: 16 }}>
+            <div style={{ fontFamily: "var(--font-display)", fontSize: 18, marginBottom: 6 }}>
+              Atualização mensal da base
+            </div>
+            <p style={{ color: "var(--ink-soft)", fontSize: 14, margin: "0 0 16px", maxWidth: 640 }}>
+              Baixa a base mais recente e insere as empresas novas e atualiza as existentes (situação, endereço, telefone).
+              Roda no servidor e leva algumas horas — você pode fechar esta página que o processo continua.
+            </p>
+            <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+              <button
+                className="btn btn-primary"
+                onClick={dispararAtualizacao}
+                disabled={!!atualiz.rodando}
+              >
+                {atualiz.rodando ? "Atualização em andamento..." : "▶ Atualizar base agora"}
+              </button>
+              <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13.5, color: "var(--ink-soft)" }}>
+                <input type="checkbox" checked={forcar} onChange={(e) => setForcar(e.target.checked)} />
+                Forçar (reprocessar mesmo se o mês já foi carregado)
+              </label>
+            </div>
+            {atualiz.rodando && (
+              <div className="alert alert-info" style={{ marginTop: 16 }}>
+                <strong>Em andamento</strong> — mês {atualiz.rodando.mes || "(detectando)"} · fase: {atualiz.rodando.fase || atualiz.rodando.status}
+              </div>
+            )}
+          </div>
+
+          <div className="table-card"><div className="table-scroll">
+            <table>
+              <thead><tr><th>Solicitado</th><th>Mês</th><th>Status</th><th>Fase</th><th>Resultado</th><th>Terminado</th></tr></thead>
+              <tbody>
+                {atualiz.rows.map((j) => (
+                  <tr key={j.id}>
+                    <td>{new Date(j.solicitado_em).toLocaleString("pt-BR")}</td>
+                    <td>{j.mes || "—"}</td>
+                    <td><span className={"status-pill " + statusClasse(j.status)}>{j.status}</span></td>
+                    <td style={{ maxWidth: 220 }}>{j.fase || "—"}</td>
+                    <td style={{ maxWidth: 320, fontSize: 12.5 }}>
+                      {j.status === "erro"
+                        ? <span style={{ color: "var(--bad)" }}>{j.erro}</span>
+                        : resumoContadores(j.contadores)}
+                    </td>
+                    <td>{j.terminado_em ? new Date(j.terminado_em).toLocaleString("pt-BR") : "—"}</td>
+                  </tr>
+                ))}
+                {atualiz.rows.length === 0 && <tr><td className="empty" colSpan={6}>Nenhuma atualização ainda.</td></tr>}
               </tbody>
             </table>
           </div></div>
