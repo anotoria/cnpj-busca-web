@@ -3,7 +3,7 @@ import { adminFetch } from "../../../lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
 
-// Estado do usuário atual para o front (nível, papel, nome) + pendentes (admin).
+// Estado do usuário atual para o front: nível, papel, plano/trial + pendentes (admin).
 export async function GET() {
   const access = await getAccess();
   if (access.level === "anon") {
@@ -25,5 +25,22 @@ export async function GET() {
   } catch {
     /* ignora */
   }
-  return Response.json({ level: access.level, role: access.role, nome, email, pendentes });
+
+  // Dias restantes do trial (arredonda pra cima: 2,1 dias → "3 dias").
+  let trialDias = null;
+  if (access.level === "trial" && access.trialAte) {
+    trialDias = Math.max(1, Math.ceil((new Date(access.trialAte) - Date.now()) / 86400000));
+  }
+
+  return Response.json({
+    level: access.level,
+    role: access.role,
+    plano: access.plano,
+    trialAte: access.trialAte,
+    trialDias,
+    podeConvidar: access.podeConvidar,
+    nome,
+    email,
+    pendentes,
+  });
 }

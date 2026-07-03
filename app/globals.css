@@ -992,3 +992,100 @@ td.empty {
     display: none;
   }
 }
+
+/* ---------- Contadores executivos (admin) ---------- */
+.stat-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.stat-chip {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  padding: 8px 16px;
+  font-size: 13px;
+  color: var(--ink-soft);
+  box-shadow: var(--shadow-card);
+}
+
+.stat-chip strong {
+  color: var(--ink);
+  font-size: 15px;
+  margin-right: 4px;
+}
+
+.stat-chip.ok strong { color: var(--ok); }
+.stat-chip.info strong { color: var(--primary-deep); }
+.stat-chip.warn strong { color: var(--warn); }
+
+/* ---------- Popup do plano (paywall) ---------- */
+.paywall {
+  position: fixed;
+  z-index: 70;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(440px, calc(100vw - 32px));
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 30px 80px -20px rgba(34, 21, 17, 0.35);
+  padding: 32px 28px 26px;
+  text-align: center;
+}
+
+.paywall h3 {
+  font-family: var(--font-display);
+  font-size: 24px;
+  margin: 10px 0 8px;
+  letter-spacing: -0.01em;
+}
+
+.paywall p {
+  color: var(--ink-soft);
+  font-size: 14.5px;
+  margin: 0 0 6px;
+}
+
+.paywall-icon { font-size: 34px; }
+
+.paywall-close {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  border: none;
+  background: transparent;
+  font-size: 26px;
+  color: var(--ink-faint);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.paywall-price {
+  margin: 16px 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 4px;
+}
+
+.paywall-price .price {
+  font-family: var(--font-display);
+  font-size: 40px;
+  font-weight: 600;
+  background: linear-gradient(100deg, var(--primary-soft) 8%, var(--primary-deep) 70%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.paywall-price .per { color: var(--ink-faint); font-size: 15px; }
+
+.paywall-note {
+  margin-top: 12px !important;
+  font-size: 12.5px !important;
+  color: var(--ink-faint) !important;
+}

@@ -1,7 +1,7 @@
 import { buildSearchParams, rpcBodyFromFilters, SELECT_COLUMNS } from "../../../lib/query";
 import { restHeaders, restUrl, resolveMunicipioCodes, serviceHeaders } from "../../../lib/supabase";
 import { resolveCnaeCodes } from "../../../lib/cnaes";
-import { getAccess, blurContacts, DEMO_LIMIT } from "../../../lib/gate";
+import { getAccess, blurContacts, hasFullAccess, DEMO_LIMIT } from "../../../lib/gate";
 import { logSearch } from "../../../lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
@@ -28,8 +28,9 @@ export async function GET(request) {
     const filters = filtersFromRequest(searchParams);
 
     // Portão de acesso: define paginação máxima e se os contatos são visíveis.
+    // Demo/modo leitura: anônimo, pendente e trial expirado (sem plano).
     const access = await getAccess();
-    const isDemo = access.level !== "approved";
+    const isDemo = !hasFullAccess(access);
 
     if (filters.municipio) {
       const codes = await resolveMunicipioCodes(filters.municipio);

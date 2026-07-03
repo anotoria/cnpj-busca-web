@@ -2,6 +2,9 @@ import { authAdmin, adminFetch, adminWrite, audit } from "../../../../lib/supaba
 
 export const dynamic = "force-dynamic";
 
+// Dias de teste concedidos a quem entra por convite.
+const TRIAL_DIAS = 3;
+
 export async function POST(request) {
   try {
     const { nome, email, password, termos, convite } = await request.json();
@@ -16,25 +19,25 @@ export async function POST(request) {
       return Response.json({ error: "A senha deve ter ao menos 8 caracteres." }, { status: 400 });
     }
 
-    // Convite válido → cadastro já aprovado.
-    let statusInicial = "pendente";
-    let origem = "cadastro";
-    let inviteRow = null;
-    if (convite) {
-      const rows = await adminFetch(
-        `invites?token=eq.${encodeURIComponent(convite)}&select=id,expira_em,max_usos,usos,revogado`
+    // Cadastro é somente por convite (autocadastro aberto foi desativado).
+    if (!convite) {
+      return Response.json(
+        { error: "O cadastro é feito apenas por convite. Fale com quem te indicou ou com o administrador." },
+        { status: 403 }
       );
-      inviteRow = Array.isArray(rows) && rows.length ? rows[0] : null;
-      const valido =
-        inviteRow &&
-        !inviteRow.revogado &&
-        inviteRow.usos < inviteRow.max_usos &&
-        new Date(inviteRow.expira_em) > new Date();
-      if (!valido) {
-        return Response.json({ error: "Convite inválido ou expirado." }, { status: 400 });
-      }
-      statusInicial = "aprovado";
-      origem = "convite";
+    }
+
+    const rows = await adminFetch(
+      `invites?token=eq.${encodeURIComponent(convite)}&select=id,criado_por,expira_em,max_usos,usos,revogado`
+    );
+    const inviteRow = Array.isArray(rows) && rows.length ? rows[0] : null;
+    const valido =
+      inviteRow &&
+      !inviteRow.revogado &&
+      inviteRow.usos < inviteRow.max_usos &&
+      new Date(inviteRow.expira_em) > new Date();
+    if (!valido) {
+      return Response.json({ error: "Convite inválido ou expirado." }, { status: 400 });
     }
 
     // Cria o usuário no Auth (e-mail auto-confirmado — mailer interno não entrega).
@@ -53,22 +56,31 @@ export async function POST(request) {
       throw e;
     }
 
-    // Cria o perfil.
+    // Perfil: aprovado (convite), sem plano, com trial de 3 dias.
+    const trialAte = new Date(Date.now() + TRIAL_DIAS * 86400000).toISOString();
     await adminWrite(
       "profiles",
       "POST",
-      { id: user.id, nome, email, role: "user", status: statusInicial, origem },
+      {
+        id: user.id,
+        nome,
+        email,
+        role: "user",
+        status: "aprovado",
+        origem: "convite",
+        plano: "sem_plano",
+        trial_ate: trialAte,
+        convidado_por: inviteRow.criado_por,
+      },
       "return=minimal"
     );
 
     // Consome o convite.
-    if (inviteRow) {
-      await adminWrite(`invites?id=eq.${inviteRow.id}`, "PATCH", { usos: inviteRow.usos + 1 }, "return=minimal");
-    }
+    await adminWrite(`invites?id=eq.${inviteRow.id}`, "PATCH", { usos: inviteRow.usos + 1 }, "return=minimal");
 
-    audit(user.id, "cadastro", { origem, status: statusInicial });
+    audit(user.id, "cadastro", { origem: "convite", trial_dias: TRIAL_DIAS, convidado_por: inviteRow.criado_por });
 
-    return Response.json({ ok: true, status: statusInicial });
+    return Response.json({ ok: true, status: "aprovado", trial_dias: TRIAL_DIAS });
   } catch (e) {
     return Response.json({ error: e.message }, { status: 500 });
   }

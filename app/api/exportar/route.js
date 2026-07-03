@@ -1,7 +1,7 @@
 import { buildSearchParams, rpcBodyFromFilters, SELECT_COLUMNS } from "../../../lib/query";
 import { restHeaders, restUrl, resolveMunicipioCodes, serviceHeaders } from "../../../lib/supabase";
 import { resolveCnaeCodes } from "../../../lib/cnaes";
-import { getAccess } from "../../../lib/gate";
+import { getAccess, hasFullAccess } from "../../../lib/gate";
 import { adminFetch, logSearch, audit } from "../../../lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
@@ -37,12 +37,19 @@ export async function GET(request) {
     const { searchParams } = new URL(request.url);
     const filters = filtersFromRequest(searchParams);
 
-    // Exportação é exclusiva de usuários aprovados. Demo/pendente → força login.
+    // Exportação exige acesso completo (admin, plano ou trial vigente).
+    // Trial vencido → 402 (o front abre o popup do plano); anônimo/pendente → 401.
     const access = await getAccess();
-    if (access.level !== "approved") {
+    if (!hasFullAccess(access)) {
+      const expirado = access.level === "expired";
       return Response.json(
-        { error: "login_required", message: "Faça login para exportar em CSV." },
-        { status: 401 }
+        {
+          error: expirado ? "plan_required" : "login_required",
+          message: expirado
+            ? "Seu período de teste terminou. Assine o plano para exportar."
+            : "Faça login para exportar em CSV.",
+        },
+        { status: expirado ? 402 : 401 }
       );
     }
 

@@ -76,6 +76,34 @@ const EMPTY = {
   porte: "", simples: false, mei: false, somenteMatriz: false,
 };
 
+// Contato para assinar o plano (até o gateway de pagamento entrar).
+const CONTATO_ASSINATURA =
+  "mailto:essahora@gmail.com?subject=Quero%20assinar%20o%20Encontre%20o%20Lead&body=Ol%C3%A1!%20Quero%20assinar%20o%20plano%20mensal%20do%20Encontre%20o%20Lead.";
+
+// Popup do plano (trial vencido / sem plano).
+function PaywallModal({ onClose }) {
+  return (
+    <>
+      <div className="drawer-backdrop" style={{ zIndex: 60 }} onClick={onClose} />
+      <div className="paywall">
+        <button className="paywall-close" onClick={onClose} aria-label="Fechar">×</button>
+        <div className="paywall-icon">🔓</div>
+        <h3>Seu período de teste terminou</h3>
+        <p>
+          Assine e tenha acesso a <strong>toda a base — mais de 68 milhões de empresas</strong>, atualizada todo mês,
+          com <strong>pesquisas ilimitadas</strong> por estado ou nicho, contatos completos e exportação em CSV.
+        </p>
+        <div className="paywall-price">
+          <span className="price">R$ 249,90</span>
+          <span className="per">/mês</span>
+        </div>
+        <a className="btn btn-primary btn-full" href={CONTATO_ASSINATURA}>Quero assinar →</a>
+        <p className="paywall-note">Enquanto isso, você continua com a versão de leitura (10 resultados, contatos ocultos).</p>
+      </div>
+    </>
+  );
+}
+
 export default function LeadApp() {
   const [me, setMe] = useState(null); // {level, role, nome, pendentes}
   const [menuOpen, setMenuOpen] = useState(false);
@@ -93,15 +121,36 @@ export default function LeadApp() {
   const [demo, setDemo] = useState(false);
   const [municipioOpcoes, setMunicipioOpcoes] = useState([]);
   const [cnaeOpcoes, setCnaeOpcoes] = useState([]);
+  const [paywall, setPaywall] = useState(false);
+  const [flash, setFlash] = useState("");
 
-  const approved = me && me.level === "approved";
+  // Acesso completo: admin, assinante do plano ou trial vigente.
+  const approved = me && (me.level === "approved" || me.level === "trial");
 
   useEffect(() => {
     fetch("/api/me")
       .then((r) => r.json())
-      .then(setMe)
+      .then((m) => {
+        setMe(m);
+        if (m.level === "expired") setPaywall(true); // popup do plano ao entrar
+      })
       .catch(() => setMe({ level: "anon" }));
   }, []);
+
+  async function convidar() {
+    setMenuOpen(false);
+    try {
+      const res = await fetch("/api/convites", { method: "POST" });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "Não foi possível gerar o convite.");
+      const link = `${window.location.origin}/cadastro?convite=${d.token}`;
+      await navigator.clipboard.writeText(link);
+      setFlash("🎟️ Link de convite copiado! Envie para quem você quer convidar (válido por 7 dias, 1 uso, com 3 dias de teste).");
+    } catch (e) {
+      setFlash("Erro: " + e.message);
+    }
+    setTimeout(() => setFlash(""), 10000);
+  }
 
   function set(k, v) {
     setFilters((f) => ({ ...f, [k]: v }));
@@ -167,7 +216,9 @@ export default function LeadApp() {
 
   function exportar() {
     if (!approved) {
-      window.location.href = "/login?next=/";
+      // Trial vencido: mostra o plano; anônimo/pendente: manda para o login.
+      if (me && me.level === "expired") setPaywall(true);
+      else window.location.href = "/login?next=/";
       return;
     }
     window.location.href = `/api/exportar?${toQuery(filters)}`;
@@ -211,10 +262,7 @@ export default function LeadApp() {
           </div>
           <div className="nav-actions">
             {!me || me.level === "anon" ? (
-              <>
-                <a className="nav-link" href="/login">Entrar</a>
-                <a className="nav-cta" href="/cadastro">Criar conta</a>
-              </>
+              <a className="nav-cta" href="/login">Entrar</a>
             ) : (
               <div style={{ position: "relative" }}>
                 <button className="user-chip" onClick={() => setMenuOpen((o) => !o)}>
@@ -225,6 +273,8 @@ export default function LeadApp() {
                 {menuOpen && (
                   <div className="menu">
                     <button onClick={abrirHistorico}>🕑 Meu histórico</button>
+                    {me.podeConvidar && <button onClick={convidar}>🎟️ Convidar (copiar link)</button>}
+                    {me.level === "expired" && <button onClick={() => { setMenuOpen(false); setPaywall(true); }}>⭐ Assinar o plano</button>}
                     {me.role === "admin" && <a href="/admin">🛠️ Painel admin{me.pendentes > 0 ? ` (${me.pendentes})` : ""}</a>}
                     <div className="sep" />
                     <button onClick={sair}>↩ Sair</button>
@@ -245,10 +295,27 @@ export default function LeadApp() {
           <p className="sub">Busque por empresas Brasileiras. Filtre e exporte o resultado em CSV.</p>
         </header>
 
+        {flash && <div className="pending-banner" style={{ background: "var(--ok-tint)", color: "var(--ok)" }}>{flash}</div>}
+
         {me && me.level === "pending" && (
           <div className="pending-banner">
             ⏳ Seu cadastro está <strong>aguardando aprovação</strong> do administrador. Enquanto isso, você usa a versão
             demonstração (até 10 resultados, contatos ocultos).
+          </div>
+        )}
+
+        {me && me.level === "trial" && (
+          <div className="pending-banner" style={{ background: "var(--warn-tint)", color: "var(--warn)" }}>
+            ⏳ Período de teste: <strong>termina em {me.trialDias} dia{me.trialDias > 1 ? "s" : ""}</strong>. Assine o
+            plano para não perder o acesso completo.{" "}
+            <a href={CONTATO_ASSINATURA} style={{ color: "var(--primary-deep)", fontWeight: 600 }}>Quero assinar →</a>
+          </div>
+        )}
+
+        {me && me.level === "expired" && (
+          <div className="pending-banner" style={{ background: "var(--bad-tint)", color: "var(--bad)" }}>
+            🔒 Seu teste terminou — você está no <strong>modo leitura</strong> (10 resultados, contatos ocultos).{" "}
+            <button className="mini-btn" style={{ marginLeft: 6 }} onClick={() => setPaywall(true)}>Ver plano</button>
           </div>
         )}
 
@@ -357,9 +424,13 @@ export default function LeadApp() {
                     <p>
                       Você está vendo <strong>até 10 resultados</strong> com os <strong>contatos ocultos</strong>.
                       {total != null && <> Há <strong>~{total.toLocaleString("pt-BR")}</strong> empresas nesse filtro.</>}
-                      {" "}Crie sua conta para ver todos e liberar telefone, e-mail e exportação.
+                      {me && me.level === "expired"
+                        ? <> Assine o plano para liberar tudo de novo.</>
+                        : <> Entre na sua conta para ver todos e liberar telefone, e-mail e exportação.</>}
                     </p>
-                    <a className="btn btn-primary" href="/cadastro">Criar conta grátis →</a>
+                    {me && me.level === "expired"
+                      ? <button className="btn btn-primary" onClick={() => setPaywall(true)}>Ver plano — R$ 249,90/mês →</button>
+                      : <a className="btn btn-primary" href="/login">Entrar →</a>}
                   </div>
                 </div>
               )}
@@ -379,6 +450,8 @@ export default function LeadApp() {
           Dados públicos oficiais (Lei 12.527/2011). Atualização mensal.
         </footer>
       </div>
+
+      {paywall && <PaywallModal onClose={() => setPaywall(false)} />}
 
       {histOpen && (
         <>

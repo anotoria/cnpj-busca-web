@@ -55,7 +55,7 @@ export default function LoginPage() {
 
           <div className="auth-links">
             <a href="/recuperar-senha">Esqueci minha senha</a>
-            <a href="/cadastro">Criar conta</a>
+            <span />
           </div>
         </form>
       </div>

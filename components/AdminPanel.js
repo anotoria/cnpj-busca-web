@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createClient } from "../lib/supabase-browser";
 
 const STATUS_CLASS = {
@@ -30,6 +30,14 @@ function resumoContadores(c) {
   return partes.join(" · ") || "—";
 }
 
+// Situação do trial de um usuário: null (n/a) | dias restantes | 'vencido'.
+function trialInfo(u) {
+  if (u.role === "admin" || u.plano === "plano" || !u.trial_ate) return null;
+  const diff = new Date(u.trial_ate) - Date.now();
+  if (diff > 0) return { vencido: false, dias: Math.max(1, Math.ceil(diff / 86400000)) };
+  return { vencido: true, dias: Math.ceil(-diff / 86400000) };
+}
+
 export default function AdminPanel({ nome }) {
   const [tab, setTab] = useState("usuarios");
   const [usuarios, setUsuarios] = useState([]);
@@ -39,7 +47,15 @@ export default function AdminPanel({ nome }) {
   const [atualiz, setAtualiz] = useState({ rows: [], rodando: null });
   const [forcar, setForcar] = useState(false);
   const [msg, setMsg] = useState("");
-  const [novoUser, setNovoUser] = useState({ nome: "", email: "", password: "", role: "user" });
+  const [novoUser, setNovoUser] = useState({ nome: "", email: "", password: "", role: "user", plano: "sem_plano", trial: true });
+  const [editando, setEditando] = useState(null); // { id, nome, email }
+
+  // Filtros da aba usuários
+  const [fBusca, setFBusca] = useState("");
+  const [fPlano, setFPlano] = useState("todos");
+  const [fStatus, setFStatus] = useState("todos");
+  const [fPerfil, setFPerfil] = useState("todos");
+  const [fOrigem, setFOrigem] = useState("todos");
 
   const base =
     typeof window !== "undefined" ? window.location.origin : "https://cnpj-busca-web.vercel.app";
@@ -75,23 +91,9 @@ export default function AdminPanel({ nome }) {
     return () => clearInterval(t);
   }, [tab]);
 
-  async function dispararAtualizacao() {
-    if (atualiz.rodando) return;
-    if (!confirm("Iniciar a atualização da base com o mês mais recente? O processo roda no servidor e pode levar algumas horas.")) return;
-    const res = await fetch("/api/admin/atualizar", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ forcar }),
-    });
-    const d = await res.json();
-    if (!res.ok) return flash("Erro: " + (d.error || res.status));
-    flash("Atualização enfileirada. Acompanhe o status abaixo.");
-    carregarAtualiz();
-  }
-
   function flash(t) {
     setMsg(t);
-    setTimeout(() => setMsg(""), 6000);
+    setTimeout(() => setMsg(""), 8000);
   }
 
   async function acao(id, acao, valor) {
@@ -107,17 +109,51 @@ export default function AdminPanel({ nome }) {
     carregarUsuarios();
   }
 
+  async function definirSenha(id) {
+    const s = prompt("Nova senha para este usuário (mínimo 8 caracteres):");
+    if (!s) return;
+    const res = await fetch("/api/admin/usuarios", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, acao: "definir_senha", valor: s }),
+    });
+    const d = await res.json();
+    if (!res.ok) return flash("Erro: " + (d.error || res.status));
+    flash("Senha definida.");
+  }
+
+  async function salvarEdicao(e) {
+    e.preventDefault();
+    const res = await fetch("/api/admin/usuarios", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: editando.id, acao: "editar", nome: editando.nome, email: editando.email }),
+    });
+    const d = await res.json();
+    if (!res.ok) return flash("Erro: " + (d.error || res.status));
+    flash("Usuário atualizado.");
+    setEditando(null);
+    carregarUsuarios();
+  }
+
   async function criarUsuario(e) {
     e.preventDefault();
     const res = await fetch("/api/admin/usuarios", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(novoUser),
+      body: JSON.stringify({
+        nome: novoUser.nome,
+        email: novoUser.email,
+        password: novoUser.password,
+        role: novoUser.role,
+        plano: novoUser.plano,
+        trial_dias: novoUser.plano === "sem_plano" && novoUser.trial ? 3 : 0,
+      }),
     });
     const d = await res.json();
     if (!res.ok) return flash("Erro: " + (d.error || res.status));
     flash("Usuário criado.");
-    setNovoUser({ nome: "", email: "", password: "", role: "user" });
+    setNovoUser({ nome: "", email: "", password: "", role: "user", plano: "sem_plano", trial: true });
     carregarUsuarios();
   }
 
@@ -147,6 +183,20 @@ export default function AdminPanel({ nome }) {
     flash("Link copiado!");
   }
 
+  async function dispararAtualizacao() {
+    if (atualiz.rodando) return;
+    if (!confirm("Iniciar a atualização da base com o mês mais recente? O processo roda no servidor e pode levar algumas horas.")) return;
+    const res = await fetch("/api/admin/atualizar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ forcar }),
+    });
+    const d = await res.json();
+    if (!res.ok) return flash("Erro: " + (d.error || res.status));
+    flash("Atualização enfileirada. Acompanhe o status abaixo.");
+    carregarAtualiz();
+  }
+
   async function sair() {
     const supabase = createClient();
     await supabase.auth.signOut();
@@ -154,6 +204,37 @@ export default function AdminPanel({ nome }) {
   }
 
   const inviteLink = (t) => `${base}/cadastro?convite=${t}`;
+
+  // ---- Filtros + contadores da aba usuários ----
+  const usuariosFiltrados = useMemo(() => {
+    const q = fBusca.trim().toLowerCase();
+    return usuarios.filter((u) => {
+      if (q && !(`${u.nome || ""} ${u.email || ""}`.toLowerCase().includes(q))) return false;
+      if (fStatus !== "todos" && u.status !== fStatus) return false;
+      if (fPerfil !== "todos" && u.role !== fPerfil) return false;
+      if (fOrigem !== "todos" && u.origem !== fOrigem) return false;
+      if (fPlano !== "todos") {
+        const t = trialInfo(u);
+        if (fPlano === "plano" && u.plano !== "plano") return false;
+        if (fPlano === "sem_plano" && u.plano !== "sem_plano") return false;
+        if (fPlano === "trial" && !(t && !t.vencido)) return false;
+        if (fPlano === "trial_vencido" && !(u.plano === "sem_plano" && (!t || t.vencido) && u.status === "aprovado" && u.role !== "admin")) return false;
+      }
+      return true;
+    });
+  }, [usuarios, fBusca, fPlano, fStatus, fPerfil, fOrigem]);
+
+  const contadores = useMemo(() => {
+    const c = { total: usuarios.length, plano: 0, trial: 0, vencido: 0, pendentes: 0 };
+    for (const u of usuarios) {
+      if (u.status === "pendente") c.pendentes++;
+      if (u.plano === "plano") c.plano++;
+      const t = trialInfo(u);
+      if (t && !t.vencido) c.trial++;
+      if (u.role !== "admin" && u.status === "aprovado" && u.plano === "sem_plano" && (!t || t.vencido)) c.vencido++;
+    }
+    return c;
+  }, [usuarios]);
 
   return (
     <div className="admin-wrap">
@@ -175,7 +256,17 @@ export default function AdminPanel({ nome }) {
 
       {tab === "usuarios" && (
         <>
-          <form onSubmit={criarUsuario} className="table-card" style={{ padding: 16, marginBottom: 16, display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto auto", gap: 10, alignItems: "end" }}>
+          {/* Contadores executivos */}
+          <div className="stat-row">
+            <div className="stat-chip"><strong>{contadores.total}</strong> usuários</div>
+            <div className="stat-chip ok"><strong>{contadores.plano}</strong> com plano</div>
+            <div className="stat-chip info"><strong>{contadores.trial}</strong> em trial</div>
+            <div className="stat-chip warn"><strong>{contadores.vencido}</strong> trial vencido</div>
+            <div className="stat-chip"><strong>{contadores.pendentes}</strong> pendentes</div>
+          </div>
+
+          {/* Criar usuário */}
+          <form onSubmit={criarUsuario} className="table-card" style={{ padding: 16, marginBottom: 16, display: "grid", gridTemplateColumns: "1.2fr 1.4fr 1fr auto auto auto auto", gap: 10, alignItems: "end" }}>
             <div><label style={{ fontSize: 12, color: "var(--ink-faint)" }}>Nome</label><input className="input" value={novoUser.nome} onChange={(e) => setNovoUser({ ...novoUser, nome: e.target.value })} required /></div>
             <div><label style={{ fontSize: 12, color: "var(--ink-faint)" }}>E-mail</label><input className="input" type="email" value={novoUser.email} onChange={(e) => setNovoUser({ ...novoUser, email: e.target.value })} required /></div>
             <div><label style={{ fontSize: 12, color: "var(--ink-faint)" }}>Senha</label><input className="input" value={novoUser.password} onChange={(e) => setNovoUser({ ...novoUser, password: e.target.value })} required /></div>
@@ -184,34 +275,99 @@ export default function AdminPanel({ nome }) {
                 <option value="user">Usuário</option><option value="admin">Admin</option>
               </select>
             </div>
+            <div><label style={{ fontSize: 12, color: "var(--ink-faint)" }}>Plano</label>
+              <select className="select" value={novoUser.plano} onChange={(e) => setNovoUser({ ...novoUser, plano: e.target.value })}>
+                <option value="sem_plano">Sem plano</option><option value="plano">Plano</option>
+              </select>
+            </div>
+            {novoUser.plano === "sem_plano" ? (
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, whiteSpace: "nowrap", paddingBottom: 12 }}>
+                <input type="checkbox" checked={novoUser.trial} onChange={(e) => setNovoUser({ ...novoUser, trial: e.target.checked })} />
+                Trial 3 dias
+              </label>
+            ) : <span />}
             <button className="btn btn-primary">+ Criar</button>
           </form>
 
+          {/* Busca e filtros */}
+          <div className="table-card" style={{ padding: 14, marginBottom: 16, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+            <input className="input" style={{ flex: "2 1 220px" }} placeholder="Buscar por nome ou e-mail..." value={fBusca} onChange={(e) => setFBusca(e.target.value)} />
+            <select className="select" style={{ flex: "1 1 150px" }} value={fPlano} onChange={(e) => setFPlano(e.target.value)}>
+              <option value="todos">Plano: todos</option>
+              <option value="plano">Com plano</option>
+              <option value="sem_plano">Sem plano</option>
+              <option value="trial">Em trial</option>
+              <option value="trial_vencido">Trial vencido</option>
+            </select>
+            <select className="select" style={{ flex: "1 1 140px" }} value={fStatus} onChange={(e) => setFStatus(e.target.value)}>
+              <option value="todos">Status: todos</option>
+              <option value="aprovado">Ativo</option>
+              <option value="desativado">Inativo</option>
+              <option value="pendente">Pendente</option>
+              <option value="rejeitado">Rejeitado</option>
+            </select>
+            <select className="select" style={{ flex: "1 1 130px" }} value={fPerfil} onChange={(e) => setFPerfil(e.target.value)}>
+              <option value="todos">Perfil: todos</option>
+              <option value="admin">Admin</option>
+              <option value="user">Usuário</option>
+            </select>
+            <select className="select" style={{ flex: "1 1 140px" }} value={fOrigem} onChange={(e) => setFOrigem(e.target.value)}>
+              <option value="todos">Origem: todas</option>
+              <option value="cadastro">Cadastro</option>
+              <option value="convite">Convite</option>
+              <option value="admin">Criado pelo admin</option>
+            </select>
+            <span style={{ fontSize: 12.5, color: "var(--ink-faint)" }}>{usuariosFiltrados.length} exibido(s)</span>
+          </div>
+
+          {/* Edição inline */}
+          {editando && (
+            <form onSubmit={salvarEdicao} className="table-card" style={{ padding: 16, marginBottom: 16, display: "grid", gridTemplateColumns: "1fr 1.4fr auto auto", gap: 10, alignItems: "end", borderColor: "var(--primary)" }}>
+              <div><label style={{ fontSize: 12, color: "var(--ink-faint)" }}>Nome</label><input className="input" value={editando.nome} onChange={(e) => setEditando({ ...editando, nome: e.target.value })} required /></div>
+              <div><label style={{ fontSize: 12, color: "var(--ink-faint)" }}>E-mail (login)</label><input className="input" type="email" value={editando.email} onChange={(e) => setEditando({ ...editando, email: e.target.value })} required /></div>
+              <button className="btn btn-primary">Salvar</button>
+              <button type="button" className="btn btn-ghost" onClick={() => setEditando(null)}>Cancelar</button>
+            </form>
+          )}
+
           <div className="table-card"><div className="table-scroll">
             <table>
-              <thead><tr><th>Nome</th><th>E-mail</th><th>Papel</th><th>Status</th><th>Origem</th><th>Ações</th></tr></thead>
+              <thead><tr><th>Nome</th><th>E-mail</th><th>Papel</th><th>Status</th><th>Plano</th><th>Trial</th><th>Origem</th><th>Cadastro</th><th>Ações</th></tr></thead>
               <tbody>
-                {usuarios.map((u) => (
-                  <tr key={u.id}>
-                    <td>{u.nome}</td>
-                    <td>{u.email}</td>
-                    <td>{u.role === "admin" ? "Admin" : "Usuário"}</td>
-                    <td><span className={STATUS_CLASS[u.status]}>{u.status}</span></td>
-                    <td>{u.origem}</td>
-                    <td style={{ whiteSpace: "nowrap" }}>
-                      {u.status === "pendente" && <>
-                        <button className="mini-btn" onClick={() => acao(u.id, "status", "aprovado")}>Aprovar</button>
-                        <button className="mini-btn danger" onClick={() => acao(u.id, "status", "rejeitado")}>Rejeitar</button>
-                      </>}
-                      {u.status === "aprovado" && <button className="mini-btn danger" onClick={() => acao(u.id, "status", "desativado")}>Desativar</button>}
-                      {(u.status === "desativado" || u.status === "rejeitado") && <button className="mini-btn" onClick={() => acao(u.id, "status", "aprovado")}>Reativar</button>}
-                      <button className="mini-btn" onClick={() => acao(u.id, "reset_senha")}>Resetar senha</button>
-                      {u.role !== "admin"
-                        ? <button className="mini-btn" onClick={() => acao(u.id, "role", "admin")}>→ Admin</button>
-                        : <button className="mini-btn" onClick={() => acao(u.id, "role", "user")}>→ Usuário</button>}
-                    </td>
-                  </tr>
-                ))}
+                {usuariosFiltrados.map((u) => {
+                  const t = trialInfo(u);
+                  return (
+                    <tr key={u.id}>
+                      <td>{u.nome}</td>
+                      <td>{u.email}</td>
+                      <td>{u.role === "admin" ? "Admin" : "Usuário"}</td>
+                      <td><span className={STATUS_CLASS[u.status]}>{u.status === "aprovado" ? "ativo" : u.status === "desativado" ? "inativo" : u.status}</span></td>
+                      <td><span className={"status-pill " + (u.plano === "plano" ? "st-aprovado" : "st-desativado")}>{u.plano === "plano" ? "Plano" : "Sem plano"}</span></td>
+                      <td>{u.role === "admin" || u.plano === "plano" ? "—" : t ? (t.vencido ? <span style={{ color: "var(--bad)" }}>vencido há {t.dias}d</span> : <span style={{ color: "var(--ok)" }}>expira em {t.dias}d</span>) : <span style={{ color: "var(--ink-faint)" }}>sem trial</span>}</td>
+                      <td>{u.origem}</td>
+                      <td style={{ whiteSpace: "nowrap" }}>{new Date(u.criado_em).toLocaleDateString("pt-BR")}</td>
+                      <td style={{ whiteSpace: "nowrap" }}>
+                        {u.status === "pendente" && <>
+                          <button className="mini-btn" onClick={() => acao(u.id, "status", "aprovado")}>Aprovar</button>
+                          <button className="mini-btn danger" onClick={() => acao(u.id, "status", "rejeitado")}>Rejeitar</button>
+                        </>}
+                        {u.status === "aprovado" && <button className="mini-btn danger" onClick={() => acao(u.id, "status", "desativado")}>Inativar</button>}
+                        {(u.status === "desativado" || u.status === "rejeitado") && <button className="mini-btn" onClick={() => acao(u.id, "status", "aprovado")}>Ativar</button>}
+                        <button className="mini-btn" onClick={() => setEditando({ id: u.id, nome: u.nome || "", email: u.email || "" })}>Editar</button>
+                        {u.plano === "plano"
+                          ? <button className="mini-btn" onClick={() => acao(u.id, "plano", "sem_plano")}>Remover plano</button>
+                          : <button className="mini-btn" onClick={() => acao(u.id, "plano", "plano")}>Dar plano</button>}
+                        {u.plano === "sem_plano" && u.role !== "admin" && <button className="mini-btn" onClick={() => acao(u.id, "trial", 3)}>Trial +3d</button>}
+                        <button className="mini-btn" onClick={() => acao(u.id, "reset_senha")}>Resetar senha</button>
+                        <button className="mini-btn" onClick={() => definirSenha(u.id)}>Definir senha</button>
+                        {u.role !== "admin"
+                          ? <button className="mini-btn" onClick={() => acao(u.id, "role", "admin")}>→ Admin</button>
+                          : <button className="mini-btn" onClick={() => acao(u.id, "role", "user")}>→ Usuário</button>}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {usuariosFiltrados.length === 0 && <tr><td className="empty" colSpan={9}>Nenhum usuário com esses filtros.</td></tr>}
               </tbody>
             </table>
           </div></div>

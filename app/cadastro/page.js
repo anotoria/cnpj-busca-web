@@ -41,6 +41,23 @@ function CadastroForm() {
     }
   }
 
+  // Cadastro é somente por convite: sem token na URL, não mostra o formulário.
+  if (!convite && !ok) {
+    return (
+      <div className="auth-card">
+        <a href="/" className="brand-center" style={{ textDecoration: "none", color: "inherit" }}>
+          <span className="brand-mark">◎</span> Encontre o Lead
+        </a>
+        <h2>Cadastro por convite</h2>
+        <div className="alert alert-info">
+          O cadastro no Encontre o Lead é feito <strong>apenas por convite</strong>. Peça o link de convite a quem te
+          indicou ou fale com o administrador.
+        </div>
+        <a className="btn btn-primary btn-full" href="/login">Já tenho conta — entrar</a>
+      </div>
+    );
+  }
+
   if (ok) {
     return (
       <div className="auth-card">
@@ -48,20 +65,11 @@ function CadastroForm() {
           <span className="brand-mark">◎</span> Encontre o Lead
         </a>
         <h2>Cadastro recebido! ✅</h2>
-        {okAprovado ? (
-          <>
-            <div className="alert alert-ok">Sua conta foi criada e <strong>já está liberada</strong> (convite pré-aprovado).</div>
-            <a className="btn btn-primary btn-full" href="/login">Fazer login</a>
-          </>
-        ) : (
-          <>
-            <div className="alert alert-info">
-              Sua conta foi criada e está <strong>aguardando aprovação do administrador</strong>. Você será liberado assim
-              que for aprovado. Você já pode entrar, mas o acesso completo só abre após a aprovação.
-            </div>
-            <a className="btn btn-primary btn-full" href="/login">Ir para o login</a>
-          </>
-        )}
+        <div className="alert alert-ok">
+          Sua conta foi criada e <strong>já está liberada</strong> — você tem <strong>3 dias de teste grátis</strong> com
+          acesso completo à base.
+        </div>
+        <a className="btn btn-primary btn-full" href="/login">Fazer login</a>
       </div>
     );
   }
@@ -72,12 +80,10 @@ function CadastroForm() {
         <span className="brand-mark">◎</span> Encontre o Lead
       </a>
       <h2>Criar conta</h2>
-      <p className="auth-sub">
-        {convite ? "Você foi convidado — seu acesso já vem pré-aprovado." : "Novos cadastros passam por aprovação do administrador."}
-      </p>
+      <p className="auth-sub">Você foi convidado — sua conta entra liberada com 3 dias de teste grátis.</p>
 
       {erro && <div className="alert alert-error">{erro}</div>}
-      {convite && <div className="alert alert-ok">🎟️ Convite detectado — cadastro pré-aprovado.</div>}
+      <div className="alert alert-ok">🎟️ Convite detectado — cadastro pré-aprovado com trial de 3 dias.</div>
 
       <div className="auth-field">
         <label>Nome completo</label>
