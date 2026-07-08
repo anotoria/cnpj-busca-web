@@ -1089,3 +1089,50 @@ td.empty {
   font-size: 12.5px !important;
   color: var(--ink-faint) !important;
 }
+
+/* ---------- Integração HighLevel: barra de envio e marcadores ---------- */
+.send-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  margin: 0 0 12px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+}
+
+.check-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  user-select: none;
+}
+
+.send-info { font-size: 13.5px; color: var(--ink-soft); }
+.send-info strong { color: var(--ink); }
+.send-limit { color: var(--warn); font-weight: 600; }
+
+tr.row-sel td {
+  background: rgba(232, 64, 28, 0.06);
+}
+
+.send-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+}
+.send-dot.ok { background: var(--ok); }
+.send-dot.warn { background: var(--warn); }
+.send-dot.bad { background: var(--bad); }

@@ -132,6 +132,18 @@ export default function LeadApp() {
   const [cnaeOpcoes, setCnaeOpcoes] = useState([]);
   const [paywall, setPaywall] = useState(false);
   const [flash, setFlash] = useState("");
+  // Integração HighLevel: seleção e envio
+  const [sel, setSel] = useState(() => new Set());
+  const [enviados, setEnviados] = useState({}); // cnpjDigits -> status
+  const [envModal, setEnvModal] = useState(false);
+  const [integracoes, setIntegracoes] = useState([]);
+  const [integSel, setIntegSel] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const [progresso, setProgresso] = useState({ feitos: 0, total: 0 });
+
+  const LIMITE_ENVIO = 200;
+  const LOTE_ENVIO = 20;
+  const cnpjDe = (r) => String(r.cnpj_formatado || "").replace(/\D/g, "");
 
   // Acesso completo: admin, assinante do plano ou trial vigente.
   const approved = me && (me.level === "approved" || me.level === "trial");
@@ -145,6 +157,85 @@ export default function LeadApp() {
       })
       .catch(() => setMe({ level: "anon" }));
   }, []);
+
+  // Marca quais CNPJs da página já foram enviados anteriormente.
+  useEffect(() => {
+    if (demo || !rows.length) return;
+    const cnpjs = rows.map(cnpjDe).filter(Boolean);
+    if (!cnpjs.length) return;
+    fetch(`/api/integracoes/enviados?cnpjs=${cnpjs.join(",")}`)
+      .then((r) => r.json())
+      .then((d) => setEnviados((prev) => ({ ...prev, ...(d.status || {}) })))
+      .catch(() => {});
+  }, [rows, demo]);
+
+  function toggleSel(cnpj) {
+    setSel((prev) => {
+      const n = new Set(prev);
+      if (n.has(cnpj)) n.delete(cnpj);
+      else if (n.size < LIMITE_ENVIO) n.add(cnpj);
+      return n;
+    });
+  }
+  function toggleSelPagina() {
+    const cnpjs = rows.map(cnpjDe).filter(Boolean);
+    const todosSelec = cnpjs.every((c) => sel.has(c));
+    setSel((prev) => {
+      const n = new Set(prev);
+      if (todosSelec) cnpjs.forEach((c) => n.delete(c));
+      else for (const c of cnpjs) { if (n.size >= LIMITE_ENVIO) break; n.add(c); }
+      return n;
+    });
+  }
+
+  async function abrirEnvio() {
+    try {
+      const d = await (await fetch("/api/integracoes")).json();
+      const ativas = (d.rows || []).filter((i) => i.ativo);
+      setIntegracoes(ativas);
+      const padrao = ativas.find((i) => i.is_default) || ativas[0];
+      setIntegSel(padrao ? padrao.id : "");
+      setEnvModal(true);
+    } catch {
+      setFlash("Erro ao carregar integrações.");
+    }
+  }
+
+  async function confirmarEnvio() {
+    if (!integSel) return;
+    const alvo = [...sel];
+    setEnviando(true);
+    setProgresso({ feitos: 0, total: alvo.length });
+    let ok = 0, parcial = 0, erro = 0;
+    for (let i = 0; i < alvo.length; i += LOTE_ENVIO) {
+      const lote = alvo.slice(i, i + LOTE_ENVIO);
+      try {
+        const res = await fetch("/api/integracoes/enviar", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ integracao_id: integSel, cnpjs: lote }),
+        });
+        const d = await res.json();
+        if (!res.ok) throw new Error(d.error || "Falha no envio");
+        const novos = {};
+        for (const r of d.resultados || []) {
+          novos[r.cnpj] = r.status;
+          if (r.status === "enviado") ok++;
+          else if (r.status === "parcial") parcial++;
+          else erro++;
+        }
+        setEnviados((prev) => ({ ...prev, ...novos }));
+      } catch (e) {
+        for (const c of lote) { erro++; setEnviados((prev) => ({ ...prev, [c]: "erro" })); }
+      }
+      setProgresso({ feitos: Math.min(i + LOTE_ENVIO, alvo.length), total: alvo.length });
+    }
+    setEnviando(false);
+    setEnvModal(false);
+    setSel(new Set());
+    setFlash(`Envio concluído: ${ok} enviados${parcial ? `, ${parcial} parciais` : ""}${erro ? `, ${erro} falharam` : ""}.`);
+    setTimeout(() => setFlash(""), 10000);
+  }
 
   async function convidar() {
     setMenuOpen(false);
@@ -290,6 +381,7 @@ export default function LeadApp() {
                 {menuOpen && (
                   <div className="menu">
                     <button onClick={abrirHistorico}>🕑 Meu histórico</button>
+                    <a href="/configuracoes">⚙️ Configurações (integrações)</a>
                     {me.podeConvidar && <button onClick={convidar}>🎟️ Convidar (copiar link)</button>}
                     {me.level === "expired" && <button onClick={() => { setMenuOpen(false); setPaywall(true); }}>⭐ Assinar o plano</button>}
                     {me.role === "admin" && <a href="/admin">🛠️ Painel admin{me.pendentes > 0 ? ` (${me.pendentes})` : ""}</a>}
@@ -422,26 +514,79 @@ export default function LeadApp() {
                 {!contagemExata && contagem != null && <div className="results-hint">contagem estimada</div>}
               </div>
 
+              {!demo && rows.length > 0 && (
+                <div className="send-bar">
+                  <label className="check-inline">
+                    <input
+                      type="checkbox"
+                      onChange={toggleSelPagina}
+                      checked={rows.length > 0 && rows.map(cnpjDe).every((c) => sel.has(c))}
+                    />
+                    <span>Selecionar página</span>
+                  </label>
+                  <span className="send-info">
+                    {sel.size > 0 ? <><strong>{sel.size}</strong> selecionada{sel.size > 1 ? "s" : ""}</> : "nenhuma selecionada"}
+                    {sel.size >= LIMITE_ENVIO && <span className="send-limit"> · limite {LIMITE_ENVIO} atingido</span>}
+                  </span>
+                  <div style={{ flex: 1 }} />
+                  {sel.size > 0 && <button className="btn btn-ghost btn-page" onClick={() => setSel(new Set())}>Limpar seleção</button>}
+                  <button
+                    className="btn btn-primary btn-page"
+                    onClick={abrirEnvio}
+                    disabled={sel.size === 0}
+                    title="Enviar as empresas selecionadas ao HighLevel"
+                  >
+                    🚀 Enviar ao HighLevel {sel.size > 0 && `(${sel.size})`}
+                  </button>
+                </div>
+              )}
+
               <div className="table-card">
                 <div className="table-scroll">
                   <table>
                     <thead>
-                      <tr>{COLS.map(([, t]) => <th key={t}>{t}</th>)}</tr>
+                      <tr>
+                        {!demo && <th style={{ width: 34 }}></th>}
+                        {!demo && <th style={{ width: 32 }}></th>}
+                        {COLS.map(([, t]) => <th key={t}>{t}</th>)}
+                      </tr>
                     </thead>
                     <tbody>
-                      {rows.map((r, i) => (
-                        <tr key={i}>
-                          {COLS.map(([k]) => (
-                            <td key={k}>
-                              {demo && CONTACT_KEYS.has(k)
-                                ? <span className="locked">🔒 login</span>
-                                : cellValue(r, k)}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
+                      {rows.map((r, i) => {
+                        const c = cnpjDe(r);
+                        const st = enviados[c];
+                        const marcado = sel.has(c);
+                        return (
+                          <tr key={i} className={marcado ? "row-sel" : ""}>
+                            {!demo && (
+                              <td>
+                                <input
+                                  type="checkbox"
+                                  checked={marcado}
+                                  disabled={!marcado && sel.size >= LIMITE_ENVIO}
+                                  onChange={() => toggleSel(c)}
+                                />
+                              </td>
+                            )}
+                            {!demo && (
+                              <td title={st ? `Envio: ${st}` : ""}>
+                                {st === "enviado" && <span className="send-dot ok" title="Enviado ao HighLevel">✓</span>}
+                                {st === "parcial" && <span className="send-dot warn" title="Envio parcial">◐</span>}
+                                {st === "erro" && <span className="send-dot bad" title="Falhou">✗</span>}
+                              </td>
+                            )}
+                            {COLS.map(([k]) => (
+                              <td key={k}>
+                                {demo && CONTACT_KEYS.has(k)
+                                  ? <span className="locked">🔒 login</span>
+                                  : cellValue(r, k)}
+                              </td>
+                            ))}
+                          </tr>
+                        );
+                      })}
                       {rows.length === 0 && (
-                        <tr><td className="empty" colSpan={COLS.length}>Nenhum resultado.</td></tr>
+                        <tr><td className="empty" colSpan={COLS.length + (demo ? 0 : 2)}>Nenhum resultado.</td></tr>
                       )}
                     </tbody>
                   </table>
@@ -482,6 +627,68 @@ export default function LeadApp() {
       </div>
 
       {paywall && <PaywallModal onClose={() => setPaywall(false)} />}
+
+      {envModal && (
+        <>
+          <div className="drawer-backdrop" style={{ zIndex: 60 }} onClick={() => !enviando && setEnvModal(false)} />
+          <div className="paywall" style={{ textAlign: "left", width: "min(520px, calc(100vw - 32px))" }}>
+            {!enviando && <button className="paywall-close" onClick={() => setEnvModal(false)} aria-label="Fechar">×</button>}
+            <div className="paywall-icon" style={{ textAlign: "center" }}>🚀</div>
+            <h3 style={{ textAlign: "center" }}>Enviar ao HighLevel</h3>
+            <p style={{ margin: "0 0 16px" }}>
+              <strong>{sel.size}</strong> empresa{sel.size > 1 ? "s" : ""} selecionada{sel.size > 1 ? "s" : ""} para envio. Cada empresa
+              vira uma Company no HighLevel e cada sócio vira um Contact vinculado.
+            </p>
+
+            {integracoes.length === 0 ? (
+              <div className="alert alert-info" style={{ marginBottom: 12 }}>
+                Você ainda não cadastrou uma integração ativa. <a href="/configuracoes">Ir para Configurações →</a>
+              </div>
+            ) : (
+              <>
+                <div className="field" style={{ marginBottom: 12 }}>
+                  <label>Integração (subconta)</label>
+                  <select className="select" value={integSel} onChange={(e) => setIntegSel(e.target.value)} disabled={enviando}>
+                    {integracoes.map((i) => (
+                      <option key={i.id} value={i.id}>
+                        {i.nome} · {i.location_id}{i.is_default ? " (padrão)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="alert alert-info" style={{ marginBottom: 12, fontSize: 13 }}>
+                  ℹ️ O limite por envio é de <strong>{LIMITE_ENVIO} empresas</strong> para garantir a integridade. Se você selecionar mais,
+                  faça em envios sucessivos.
+                </div>
+              </>
+            )}
+
+            {enviando && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ height: 8, background: "var(--line)", borderRadius: 999, overflow: "hidden" }}>
+                  <div style={{ width: `${(progresso.feitos / Math.max(progresso.total, 1)) * 100}%`,
+                    height: "100%", background: "var(--primary)", transition: "width .2s" }} />
+                </div>
+                <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginTop: 6, textAlign: "center" }}>
+                  Processando {progresso.feitos} de {progresso.total}...
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+              <button className="btn btn-ghost" onClick={() => setEnvModal(false)} disabled={enviando} style={{ flex: 1 }}>Cancelar</button>
+              <button
+                className="btn btn-primary"
+                onClick={confirmarEnvio}
+                disabled={enviando || integracoes.length === 0 || !integSel}
+                style={{ flex: 2 }}
+              >
+                {enviando ? "Enviando..." : `Confirmar envio de ${sel.size}`}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
 
       {histOpen && (
         <>
