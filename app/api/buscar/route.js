@@ -19,6 +19,8 @@ function filtersFromRequest(searchParams) {
     simples: searchParams.get("simples") === "1",
     mei: searchParams.get("mei") === "1",
     somenteMatriz: searchParams.get("somenteMatriz") === "1",
+    telefone: searchParams.get("telefone") || "",
+    email: searchParams.get("email") || "",
   };
 }
 
@@ -58,44 +60,74 @@ export async function GET(request) {
     const url = restUrl(`vw_busca_empresas?${p.toString()}`);
 
     let rows = [];
-    let total = null;
+    let total = null; // contagem exata (só quando confiável)
+    let estimativa = null; // estimativa do planejador (para exibição aproximada)
+    let hasMore = false; // existe próxima página? (fonte da verdade da paginação)
 
-    const res = await fetch(url, {
-      headers: restHeaders({
-        Prefer: "count=planned",
-        Range: `${offset}-${offset + pageSize - 1}`,
-        "Range-Unit": "items",
-      }),
-      cache: "no-store",
+    // Busca 1 linha a mais que a página para saber, com certeza, se há próxima.
+    // Tenta primeiro com anon (timeout curto de 3s = falha rápida em query ampla).
+    const rangeHeaders = (extra) => ({
+      Prefer: "count=planned",
+      Range: `${offset}-${offset + pageSize}`,
+      "Range-Unit": "items",
+      ...extra,
     });
 
-    if (!res.ok) {
+    function parseEstimativa(res) {
+      const contentRange = res.headers.get("content-range") || "";
+      const t = contentRange.includes("/") ? contentRange.split("/")[1] : null;
+      return t === "*" || t === null ? null : parseInt(t, 10);
+    }
+
+    const res = await fetch(url, { headers: restHeaders(rangeHeaders()), cache: "no-store" });
+
+    if (res.ok) {
+      rows = await res.json();
+      estimativa = parseEstimativa(res);
+    } else {
       const body = await res.text();
-      if (body.includes("57014") && filters.termo) {
+      if (!body.includes("57014")) {
+        return Response.json({ error: `PostgREST ${res.status}: ${body}` }, { status: 502 });
+      }
+      // Timeout de 3s. Busca textual → RPC indexado; senão → repete com a
+      // service key (sem o teto de 3s), que dá conta de filtros amplos.
+      if (filters.termo) {
         const rpcRes = await fetch(restUrl(`rpc/busca_por_termo?select=${SELECT_COLUMNS.join(",")}`), {
           method: "POST",
           headers: serviceHeaders({ "Content-Type": "application/json" }),
-          body: JSON.stringify(rpcBodyFromFilters(filters, pageSize, offset)),
+          body: JSON.stringify(rpcBodyFromFilters(filters, pageSize + 1, offset)),
           cache: "no-store",
         });
         if (!rpcRes.ok) {
           return Response.json({ error: `PostgREST ${rpcRes.status}: ${await rpcRes.text()}` }, { status: 502 });
         }
         rows = await rpcRes.json();
-      } else if (body.includes("57014")) {
-        return Response.json(
-          { error: "A busca ficou muito ampla e excedeu o tempo limite. Refine com UF, município ou atividade/nicho." },
-          { status: 504 }
-        );
       } else {
-        return Response.json({ error: `PostgREST ${res.status}: ${body}` }, { status: 502 });
+        const res2 = await fetch(url, { headers: serviceHeaders(rangeHeaders()), cache: "no-store" });
+        if (!res2.ok) {
+          const b2 = await res2.text();
+          if (b2.includes("57014")) {
+            return Response.json(
+              { error: "A busca ficou muito ampla e excedeu o tempo limite. Refine com UF, município ou atividade/nicho." },
+              { status: 504 }
+            );
+          }
+          return Response.json({ error: `PostgREST ${res2.status}: ${b2}` }, { status: 502 });
+        }
+        rows = await res2.json();
+        estimativa = parseEstimativa(res2);
       }
-    } else {
-      rows = await res.json();
-      const contentRange = res.headers.get("content-range") || "";
-      const t = contentRange.includes("/") ? contentRange.split("/")[1] : null;
-      total = t === "*" || t === null ? null : parseInt(t, 10);
     }
+
+    // hasMore: veio mais que a página → há próxima. Corta o excedente.
+    hasMore = rows.length > pageSize;
+    if (hasMore) rows = rows.slice(0, pageSize);
+
+    // Contagem honesta: na última página sabemos o total exato.
+    if (!hasMore) total = offset + rows.length;
+
+    // Demo: só a 1ª página, nunca "próxima".
+    if (isDemo) hasMore = false;
 
     // Demo: oculta contatos.
     if (isDemo) rows = blurContacts(rows);
@@ -106,12 +138,12 @@ export async function GET(request) {
         user_id: access.userId,
         tipo: "busca",
         filtros: filters,
-        total_resultados: total,
+        total_resultados: total ?? estimativa,
         anonimo: access.level === "anon",
       });
     }
 
-    return Response.json({ rows, page, pageSize, total, demo: isDemo, level: access.level });
+    return Response.json({ rows, page, pageSize, total, estimativa, hasMore, demo: isDemo, level: access.level });
   } catch (e) {
     return Response.json({ error: e.message }, { status: 500 });
   }

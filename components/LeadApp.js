@@ -74,7 +74,14 @@ function Toggle({ checked, onChange, children }) {
 const EMPTY = {
   termo: "", uf: "", municipio: "", cnae: "", situacao: "02",
   porte: "", simples: false, mei: false, somenteMatriz: false,
+  telefone: "", email: "",
 };
+
+const CONTATO_OPCOES = [
+  { v: "", t: "Todos" },
+  { v: "com", t: "Com" },
+  { v: "sem", t: "Sem" },
+];
 
 // Contato para assinar o plano (até o gateway de pagamento entrar).
 const CONTATO_ASSINATURA =
@@ -113,6 +120,8 @@ export default function LeadApp() {
   const [filters, setFilters] = useState(EMPTY);
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(null);
+  const [estimativa, setEstimativa] = useState(null);
+  const [hasMore, setHasMore] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize] = useState(50);
   const [loading, setLoading] = useState(false);
@@ -189,6 +198,8 @@ export default function LeadApp() {
     if (f.simples) q.set("simples", "1");
     if (f.mei) q.set("mei", "1");
     if (f.somenteMatriz) q.set("somenteMatriz", "1");
+    if (f.telefone) q.set("telefone", f.telefone);
+    if (f.email) q.set("email", f.email);
     for (const [k, v] of Object.entries(extra)) q.set(k, v);
     return q.toString();
   }
@@ -203,12 +214,16 @@ export default function LeadApp() {
       if (!res.ok) throw new Error(data.error || "Erro na busca");
       setRows(data.rows || []);
       setTotal(data.total);
+      setEstimativa(data.estimativa);
+      setHasMore(!!data.hasMore);
       setDemo(!!data.demo);
       setPage(p);
     } catch (e) {
       setError(e.message);
       setRows([]);
       setTotal(null);
+      setEstimativa(null);
+      setHasMore(false);
     } finally {
       setLoading(false);
     }
@@ -248,8 +263,10 @@ export default function LeadApp() {
     window.location.reload();
   }
 
-  const totalPages = total ? Math.max(1, Math.ceil(total / pageSize)) : null;
   const iniciais = (me && me.nome ? me.nome : "?").slice(0, 1).toUpperCase();
+  // Contagem para exibir: exata quando conhecida; senão a estimativa (aproximada).
+  const contagem = total != null ? total : estimativa;
+  const contagemExata = total != null;
 
   return (
     <>
@@ -362,6 +379,18 @@ export default function LeadApp() {
                   {PORTES.map((s) => <option key={s.v} value={s.v}>{s.t}</option>)}
                 </select>
               </div>
+              <div className="field">
+                <label>Telefone</label>
+                <select className="select" value={filters.telefone} onChange={(e) => set("telefone", e.target.value)}>
+                  {CONTATO_OPCOES.map((s) => <option key={s.v} value={s.v}>{s.t}</option>)}
+                </select>
+              </div>
+              <div className="field">
+                <label>E-mail</label>
+                <select className="select" value={filters.email} onChange={(e) => set("email", e.target.value)}>
+                  {CONTATO_OPCOES.map((s) => <option key={s.v} value={s.v}>{s.t}</option>)}
+                </select>
+              </div>
             </div>
 
             <div className="actions">
@@ -386,10 +415,11 @@ export default function LeadApp() {
             <section className="results">
               <div className="results-meta">
                 <div className="results-count">
-                  {total != null ? <><span>~{total.toLocaleString("pt-BR")}</span> empresas encontradas</>
+                  {contagem != null
+                    ? <><span>{contagemExata ? "" : "~"}{contagem.toLocaleString("pt-BR")}{hasMore ? "+" : ""}</span> empresa{contagem === 1 ? "" : "s"} encontrada{contagem === 1 ? "" : "s"}</>
                     : <><span>{rows.length}</span> resultado(s)</>}
                 </div>
-                {total != null && <div className="results-hint">contagem estimada</div>}
+                {!contagemExata && contagem != null && <div className="results-hint">contagem estimada</div>}
               </div>
 
               <div className="table-card">
@@ -423,7 +453,7 @@ export default function LeadApp() {
                   <div className="demo-cta-inner">
                     <p>
                       Você está vendo <strong>até 10 resultados</strong> com os <strong>contatos ocultos</strong>.
-                      {total != null && <> Há <strong>~{total.toLocaleString("pt-BR")}</strong> empresas nesse filtro.</>}
+                      {contagem != null && <> Há <strong>{contagemExata ? "" : "~"}{contagem.toLocaleString("pt-BR")}</strong> empresas nesse filtro.</>}
                       {me && me.level === "expired"
                         ? <> Assine o plano para liberar tudo de novo.</>
                         : <> Entre na sua conta para ver todos e liberar telefone, e-mail e exportação.</>}
@@ -435,11 +465,11 @@ export default function LeadApp() {
                 </div>
               )}
 
-              {!demo && rows.length > 0 && (
+              {!demo && rows.length > 0 && (page > 1 || hasMore) && (
                 <div className="pager">
                   <button className="btn btn-ghost btn-page" onClick={() => buscar(page - 1)} disabled={page <= 1 || loading}>← Anterior</button>
-                  <span className="info">Página {page}{totalPages ? ` de ~${totalPages}` : ""}</span>
-                  <button className="btn btn-ghost btn-page" onClick={() => buscar(page + 1)} disabled={loading || rows.length < pageSize}>Próxima →</button>
+                  <span className="info">Página {page}</span>
+                  <button className="btn btn-ghost btn-page" onClick={() => buscar(page + 1)} disabled={loading || !hasMore}>Próxima →</button>
                 </div>
               )}
             </section>
@@ -467,6 +497,8 @@ export default function LeadApp() {
               if (f.municipio) tags.push(f.municipio);
               if (f.cnae) tags.push(f.cnae);
               if (f.situacao) tags.push(SITUACOES.find((s) => s.v === f.situacao)?.t || f.situacao);
+              if (f.telefone) tags.push(f.telefone === "com" ? "com tel." : "sem tel.");
+              if (f.email) tags.push(f.email === "com" ? "com e-mail" : "sem e-mail");
               return (
                 <div key={h.id} className="hist-item" onClick={() => reexecutar(f)}>
                   <div className="tags">

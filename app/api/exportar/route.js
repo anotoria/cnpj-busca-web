@@ -29,6 +29,8 @@ function filtersFromRequest(searchParams) {
     simples: searchParams.get("simples") === "1",
     mei: searchParams.get("mei") === "1",
     somenteMatriz: searchParams.get("somenteMatriz") === "1",
+    telefone: searchParams.get("telefone") || "",
+    email: searchParams.get("email") || "",
   };
 }
 
