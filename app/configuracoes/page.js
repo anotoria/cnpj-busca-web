@@ -58,11 +58,27 @@ export default function ConfiguracoesPage() {
 // ============================================================
 // Aba HighLevel
 // ============================================================
+const HL_SNAPSHOT_URL = process.env.NEXT_PUBLIC_HL_SNAPSHOT_URL || "";
+const HL_HELP_KEY = "hl_help_dismissed";
+
 function AbaHighLevel({ flash }) {
   const [rows, setRows] = useState([]);
   const [form, setForm] = useState(HL_VAZIO);
   const [editId, setEditId] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [guiaOculto, setGuiaOculto] = useState(false);
+
+  useEffect(() => {
+    try {
+      setGuiaOculto(localStorage.getItem(HL_HELP_KEY) === "1");
+    } catch {}
+  }, []);
+
+  function toggleGuia() {
+    const novo = !guiaOculto;
+    setGuiaOculto(novo);
+    try { localStorage.setItem(HL_HELP_KEY, novo ? "1" : "0"); } catch {}
+  }
 
   async function carregar() {
     const r = await fetch("/api/integracoes");
@@ -111,6 +127,72 @@ function AbaHighLevel({ flash }) {
 
   return (
     <>
+      {/* Aviso do snapshot — sempre visível */}
+      <div className="hl-snap-alert">
+        <div className="hl-snap-icon">⚠️</div>
+        <div className="hl-snap-body">
+          <div className="hl-snap-title">Instale o snapshot antes de conectar sua subconta</div>
+          <p>
+            Para que os dados cheguem completos e prontos para uso na sua subconta do HighLevel, é
+            <strong> obrigatório </strong> instalar o snapshot do Prospect AI. Ele prepara os campos
+            personalizados, as tags e os automatismos que fazem os envios funcionarem. Sem isso, algumas
+            informações podem ficar em campos incorretos ou automações do CRM podem não disparar.
+          </p>
+          <div className="hl-snap-actions">
+            {HL_SNAPSHOT_URL ? (
+              <a
+                className="btn btn-snapshot"
+                href={HL_SNAPSHOT_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                ⬇ Instalar Snapshot na minha subconta
+              </a>
+            ) : (
+              <button className="btn btn-snapshot" disabled title="Link do snapshot ainda não configurado">
+                ⬇ Instalar Snapshot (indisponível)
+              </button>
+            )}
+            <button className="btn btn-ghost btn-page" onClick={toggleGuia}>
+              {guiaOculto ? "Ver passo a passo" : "Ocultar passo a passo"}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Passo a passo — colapsável */}
+      {!guiaOculto && (
+        <div className="hl-guide">
+          <div className="hl-guide-title">Como conectar em 3 passos</div>
+          <ol className="hl-guide-steps">
+            <li>
+              <span className="hl-guide-step-ico">⬇</span>
+              <div>
+                <strong>Instale o snapshot</strong> clicando no botão acima. O HighLevel vai abrir; escolha a
+                subconta onde quer receber os envios e confirme a instalação.
+              </div>
+            </li>
+            <li>
+              <span className="hl-guide-step-ico">📋</span>
+              <div>
+                <strong>Pegue o ID da subconta (Location ID):</strong> no HighLevel, entre na subconta →
+                Configurações → Business Profile. O Location ID aparece no painel (ou pode ser copiado da
+                URL). Cole no campo <em>ID da subconta</em> abaixo.
+              </div>
+            </li>
+            <li>
+              <span className="hl-guide-step-ico">🔑</span>
+              <div>
+                <strong>Gere o Private Token:</strong> ainda na subconta → Configurações → Private Integrations
+                → <em>New Integration</em>. Dê um nome (ex.: "Prospect AI"), marque as permissões de{" "}
+                <strong>Contacts, Businesses e Custom Fields</strong> (leitura e escrita) e copie o token
+                gerado (começa com <code>pit-</code>). Cole no campo <em>Private Token</em> abaixo.
+              </div>
+            </li>
+          </ol>
+        </div>
+      )}
+
       <form onSubmit={salvar} className="table-card" style={{ padding: 20, marginBottom: 20 }}>
         <div style={{ fontFamily: "var(--font-display)", fontSize: 18, marginBottom: 4 }}>
           {editId ? "Editar integração" : "Nova integração"}
@@ -124,11 +206,16 @@ function AbaHighLevel({ flash }) {
             <input className="input" value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} placeholder="Ex.: Cliente Agência X" required />
           </div>
           <div className="field">
-            <label>ID da subconta (Location ID)</label>
+            <label title="Encontre em Configurações → Business Profile da sua subconta">
+              ID da subconta (Location ID) <span className="hl-help-badge" title="Configurações → Business Profile da sua subconta">?</span>
+            </label>
             <input className="input" value={form.location_id} onChange={(e) => setForm({ ...form, location_id: e.target.value })} placeholder="Ex.: 7EeYMLZ4ainmXMeu0ZCH" required />
           </div>
           <div className="field">
-            <label>Private Token {editId && "(deixe em branco p/ manter)"}</label>
+            <label title="Gerado em Configurações → Private Integrations">
+              Private Token <span className="hl-help-badge" title="Configurações → Private Integrations. Começa com pit-">?</span>
+              {editId && " (deixe em branco p/ manter)"}
+            </label>
             <input className="input" type="password" value={form.private_token} onChange={(e) => setForm({ ...form, private_token: e.target.value })} placeholder="pit-..." required={!editId} />
           </div>
         </div>
