@@ -85,7 +85,7 @@ const CONTATO_OPCOES = [
 
 // Contato para assinar o plano (até o gateway de pagamento entrar).
 const CONTATO_ASSINATURA =
-  "mailto:essahora@gmail.com?subject=Quero%20assinar%20o%20Encontre%20o%20Lead&body=Ol%C3%A1!%20Quero%20assinar%20o%20plano%20mensal%20do%20Encontre%20o%20Lead.";
+  "mailto:essahora@gmail.com?subject=Quero%20assinar%20o%20Prospect%20AI&body=Ol%C3%A1!%20Quero%20assinar%20o%20plano%20mensal%20do%20Prospect%20AI.";
 
 // Popup do plano (trial vencido / sem plano).
 function PaywallModal({ onClose }) {
@@ -132,12 +132,13 @@ export default function LeadApp() {
   const [cnaeOpcoes, setCnaeOpcoes] = useState([]);
   const [paywall, setPaywall] = useState(false);
   const [flash, setFlash] = useState("");
-  // Integração HighLevel: seleção e envio
+  // Integração (HighLevel e Webhook): seleção e envio.
   const [sel, setSel] = useState(() => new Set());
-  const [enviados, setEnviados] = useState({}); // cnpjDigits -> status
-  const [envModal, setEnvModal] = useState(false);
+  const [enviados, setEnviados] = useState({}); // cnpjDigits -> { highlevel?: status, webhook?: status }
+  const [envModal, setEnvModal] = useState(null); // null | 'highlevel' | 'webhook'
   const [integracoes, setIntegracoes] = useState([]);
-  const [integSel, setIntegSel] = useState("");
+  const [webhooks, setWebhooks] = useState([]);
+  const [alvoEnvio, setAlvoEnvio] = useState(""); // id da integracao/webhook escolhido
   const [enviando, setEnviando] = useState(false);
   const [progresso, setProgresso] = useState({ feitos: 0, total: 0 });
 
@@ -188,50 +189,69 @@ export default function LeadApp() {
     });
   }
 
-  async function abrirEnvio() {
+  async function abrirEnvio(canal) {
     try {
-      const d = await (await fetch("/api/integracoes")).json();
-      const ativas = (d.rows || []).filter((i) => i.ativo);
-      setIntegracoes(ativas);
-      const padrao = ativas.find((i) => i.is_default) || ativas[0];
-      setIntegSel(padrao ? padrao.id : "");
-      setEnvModal(true);
+      if (canal === "highlevel") {
+        const d = await (await fetch("/api/integracoes")).json();
+        const ativas = (d.rows || []).filter((i) => i.ativo);
+        setIntegracoes(ativas);
+        const padrao = ativas.find((i) => i.is_default) || ativas[0];
+        setAlvoEnvio(padrao ? padrao.id : "");
+      } else {
+        const d = await (await fetch("/api/webhooks")).json();
+        const ativos = (d.rows || []).filter((w) => w.ativo);
+        setWebhooks(ativos);
+        setAlvoEnvio(ativos[0] ? ativos[0].id : "");
+      }
+      setEnvModal(canal);
     } catch {
       setFlash("Erro ao carregar integrações.");
     }
   }
 
   async function confirmarEnvio() {
-    if (!integSel) return;
+    if (!alvoEnvio || !envModal) return;
+    const canal = envModal;
     const alvo = [...sel];
     setEnviando(true);
     setProgresso({ feitos: 0, total: alvo.length });
     let ok = 0, parcial = 0, erro = 0;
+    const url = canal === "highlevel" ? "/api/integracoes/enviar" : "/api/webhooks/enviar";
+    const keyId = canal === "highlevel" ? "integracao_id" : "webhook_id";
     for (let i = 0; i < alvo.length; i += LOTE_ENVIO) {
       const lote = alvo.slice(i, i + LOTE_ENVIO);
       try {
-        const res = await fetch("/api/integracoes/enviar", {
+        const res = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ integracao_id: integSel, cnpjs: lote }),
+          body: JSON.stringify({ [keyId]: alvoEnvio, cnpjs: lote }),
         });
         const d = await res.json();
         if (!res.ok) throw new Error(d.error || "Falha no envio");
-        const novos = {};
-        for (const r of d.resultados || []) {
-          novos[r.cnpj] = r.status;
-          if (r.status === "enviado") ok++;
-          else if (r.status === "parcial") parcial++;
-          else erro++;
-        }
-        setEnviados((prev) => ({ ...prev, ...novos }));
+        setEnviados((prev) => {
+          const next = { ...prev };
+          for (const r of d.resultados || []) {
+            next[r.cnpj] = { ...(next[r.cnpj] || {}), [canal]: r.status };
+            if (r.status === "enviado") ok++;
+            else if (r.status === "parcial") parcial++;
+            else erro++;
+          }
+          return next;
+        });
       } catch (e) {
-        for (const c of lote) { erro++; setEnviados((prev) => ({ ...prev, [c]: "erro" })); }
+        setEnviados((prev) => {
+          const next = { ...prev };
+          for (const c of lote) {
+            next[c] = { ...(next[c] || {}), [canal]: "erro" };
+            erro++;
+          }
+          return next;
+        });
       }
       setProgresso({ feitos: Math.min(i + LOTE_ENVIO, alvo.length), total: alvo.length });
     }
     setEnviando(false);
-    setEnvModal(false);
+    setEnvModal(null);
     setSel(new Set());
     setFlash(`Envio concluído: ${ok} enviados${parcial ? `, ${parcial} parciais` : ""}${erro ? `, ${erro} falharam` : ""}.`);
     setTimeout(() => setFlash(""), 10000);
@@ -366,7 +386,7 @@ export default function LeadApp() {
         <nav className="nav">
           <div className="brand">
             <span className="brand-mark">◎</span>
-            Encontre o Lead
+            Prospect AI
           </div>
           <div className="nav-actions">
             {!me || me.level === "anon" ? (
@@ -381,7 +401,7 @@ export default function LeadApp() {
                 {menuOpen && (
                   <div className="menu">
                     <button onClick={abrirHistorico}>🕑 Meu histórico</button>
-                    <a href="/configuracoes">⚙️ Configurações (integrações)</a>
+                    <a href="/configuracoes">⚙️ Integrações</a>
                     {me.podeConvidar && <button onClick={convidar}>🎟️ Convidar (copiar link)</button>}
                     {me.level === "expired" && <button onClick={() => { setMenuOpen(false); setPaywall(true); }}>⭐ Assinar o plano</button>}
                     {me.role === "admin" && <a href="/admin">🛠️ Painel admin{me.pendentes > 0 ? ` (${me.pendentes})` : ""}</a>}
@@ -397,7 +417,7 @@ export default function LeadApp() {
         <header className="hero">
           <div className="eyebrow">Motor de busca de empresas brasileiras</div>
           <h1>
-            Encontre o Lead
+            Prospect AI
             <br />
             <em>Seu futuro cliente está aqui</em>
           </h1>
@@ -532,11 +552,19 @@ export default function LeadApp() {
                   {sel.size > 0 && <button className="btn btn-ghost btn-page" onClick={() => setSel(new Set())}>Limpar seleção</button>}
                   <button
                     className="btn btn-primary btn-page"
-                    onClick={abrirEnvio}
+                    onClick={() => abrirEnvio("highlevel")}
                     disabled={sel.size === 0}
                     title="Enviar as empresas selecionadas ao HighLevel"
                   >
                     🚀 Enviar ao HighLevel {sel.size > 0 && `(${sel.size})`}
+                  </button>
+                  <button
+                    className="btn btn-webhook btn-page"
+                    onClick={() => abrirEnvio("webhook")}
+                    disabled={sel.size === 0}
+                    title="Enviar as empresas selecionadas para um webhook"
+                  >
+                    🔗 Enviar ao Webhook {sel.size > 0 && `(${sel.size})`}
                   </button>
                 </div>
               )}
@@ -569,10 +597,25 @@ export default function LeadApp() {
                               </td>
                             )}
                             {!demo && (
-                              <td title={st ? `Envio: ${st}` : ""}>
-                                {st === "enviado" && <span className="send-dot ok" title="Enviado ao HighLevel">✓</span>}
-                                {st === "parcial" && <span className="send-dot warn" title="Envio parcial">◐</span>}
-                                {st === "erro" && <span className="send-dot bad" title="Falhou">✗</span>}
+                              <td>
+                                <span className="send-dots">
+                                  {st && st.highlevel && (
+                                    <span
+                                      className={"send-dot " + (st.highlevel === "enviado" ? "ok" : st.highlevel === "parcial" ? "warn" : "bad")}
+                                      title={"HighLevel: " + st.highlevel}
+                                    >
+                                      {st.highlevel === "enviado" ? "✓" : st.highlevel === "parcial" ? "◐" : "✗"}
+                                    </span>
+                                  )}
+                                  {st && st.webhook && (
+                                    <span
+                                      className={"send-dot " + (st.webhook === "enviado" ? "info" : st.webhook === "parcial" ? "warn" : "bad")}
+                                      title={"Webhook: " + st.webhook}
+                                    >
+                                      {st.webhook === "enviado" ? "✓" : st.webhook === "parcial" ? "◐" : "✗"}
+                                    </span>
+                                  )}
+                                </span>
                               </td>
                             )}
                             {COLS.map(([k]) => (
@@ -628,67 +671,83 @@ export default function LeadApp() {
 
       {paywall && <PaywallModal onClose={() => setPaywall(false)} />}
 
-      {envModal && (
-        <>
-          <div className="drawer-backdrop" style={{ zIndex: 60 }} onClick={() => !enviando && setEnvModal(false)} />
-          <div className="paywall" style={{ textAlign: "left", width: "min(520px, calc(100vw - 32px))" }}>
-            {!enviando && <button className="paywall-close" onClick={() => setEnvModal(false)} aria-label="Fechar">×</button>}
-            <div className="paywall-icon" style={{ textAlign: "center" }}>🚀</div>
-            <h3 style={{ textAlign: "center" }}>Enviar ao HighLevel</h3>
-            <p style={{ margin: "0 0 16px" }}>
-              <strong>{sel.size}</strong> empresa{sel.size > 1 ? "s" : ""} selecionada{sel.size > 1 ? "s" : ""} para envio. Cada empresa
-              vira uma Company no HighLevel e cada sócio vira um Contact vinculado.
-            </p>
+      {envModal && (() => {
+        const canal = envModal;
+        const lista = canal === "highlevel" ? integracoes : webhooks;
+        const cfgLink = "/configuracoes";
+        const titulo = canal === "highlevel" ? "Enviar ao HighLevel" : "Enviar ao Webhook";
+        const icone = canal === "highlevel" ? "🚀" : "🔗";
+        const labelSelect = canal === "highlevel" ? "Integração (subconta)" : "Integração (Webhook)";
+        const descr = canal === "highlevel"
+          ? "Cada empresa vira uma Company no HighLevel e cada sócio vira um Contact vinculado."
+          : "Cada empresa selecionada gera um POST JSON para o webhook, com todos os dados da empresa e a lista de sócios.";
+        const semItens = canal === "highlevel"
+          ? "Você ainda não cadastrou uma integração ativa."
+          : "Você ainda não cadastrou um webhook ativo.";
+        const btnClass = canal === "highlevel" ? "btn btn-primary" : "btn btn-webhook";
+        return (
+          <>
+            <div className="drawer-backdrop" style={{ zIndex: 60 }} onClick={() => !enviando && setEnvModal(null)} />
+            <div className="paywall" style={{ textAlign: "left", width: "min(520px, calc(100vw - 32px))" }}>
+              {!enviando && <button className="paywall-close" onClick={() => setEnvModal(null)} aria-label="Fechar">×</button>}
+              <div className="paywall-icon" style={{ textAlign: "center" }}>{icone}</div>
+              <h3 style={{ textAlign: "center" }}>{titulo}</h3>
+              <p style={{ margin: "0 0 16px" }}>
+                <strong>{sel.size}</strong> empresa{sel.size > 1 ? "s" : ""} selecionada{sel.size > 1 ? "s" : ""} para envio. {descr}
+              </p>
 
-            {integracoes.length === 0 ? (
-              <div className="alert alert-info" style={{ marginBottom: 12 }}>
-                Você ainda não cadastrou uma integração ativa. <a href="/configuracoes">Ir para Configurações →</a>
+              {lista.length === 0 ? (
+                <div className="alert alert-info" style={{ marginBottom: 12 }}>
+                  {semItens} <a href={cfgLink}>Ir para Integrações →</a>
+                </div>
+              ) : (
+                <>
+                  <div className="field" style={{ marginBottom: 12 }}>
+                    <label>{labelSelect}</label>
+                    <select className="select" value={alvoEnvio} onChange={(e) => setAlvoEnvio(e.target.value)} disabled={enviando}>
+                      {lista.map((i) => (
+                        <option key={i.id} value={i.id}>
+                          {canal === "highlevel"
+                            ? `${i.nome} · ${i.location_id}${i.is_default ? " (padrão)" : ""}`
+                            : `${i.nome}`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="alert alert-info" style={{ marginBottom: 12, fontSize: 13 }}>
+                    ℹ️ O limite por envio é de <strong>{LIMITE_ENVIO} empresas</strong> para garantir a integridade. Se você selecionar mais,
+                    faça em envios sucessivos.
+                  </div>
+                </>
+              )}
+
+              {enviando && (
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ height: 8, background: "var(--line)", borderRadius: 999, overflow: "hidden" }}>
+                    <div style={{ width: `${(progresso.feitos / Math.max(progresso.total, 1)) * 100}%`,
+                      height: "100%", background: canal === "highlevel" ? "var(--primary)" : "#2b6cf5", transition: "width .2s" }} />
+                  </div>
+                  <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginTop: 6, textAlign: "center" }}>
+                    Processando {progresso.feitos} de {progresso.total}...
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+                <button className="btn btn-ghost" onClick={() => setEnvModal(null)} disabled={enviando} style={{ flex: 1 }}>Cancelar</button>
+                <button
+                  className={btnClass}
+                  onClick={confirmarEnvio}
+                  disabled={enviando || lista.length === 0 || !alvoEnvio}
+                  style={{ flex: 2 }}
+                >
+                  {enviando ? "Enviando..." : `Confirmar envio de ${sel.size}`}
+                </button>
               </div>
-            ) : (
-              <>
-                <div className="field" style={{ marginBottom: 12 }}>
-                  <label>Integração (subconta)</label>
-                  <select className="select" value={integSel} onChange={(e) => setIntegSel(e.target.value)} disabled={enviando}>
-                    {integracoes.map((i) => (
-                      <option key={i.id} value={i.id}>
-                        {i.nome} · {i.location_id}{i.is_default ? " (padrão)" : ""}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="alert alert-info" style={{ marginBottom: 12, fontSize: 13 }}>
-                  ℹ️ O limite por envio é de <strong>{LIMITE_ENVIO} empresas</strong> para garantir a integridade. Se você selecionar mais,
-                  faça em envios sucessivos.
-                </div>
-              </>
-            )}
-
-            {enviando && (
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ height: 8, background: "var(--line)", borderRadius: 999, overflow: "hidden" }}>
-                  <div style={{ width: `${(progresso.feitos / Math.max(progresso.total, 1)) * 100}%`,
-                    height: "100%", background: "var(--primary)", transition: "width .2s" }} />
-                </div>
-                <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginTop: 6, textAlign: "center" }}>
-                  Processando {progresso.feitos} de {progresso.total}...
-                </div>
-              </div>
-            )}
-
-            <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
-              <button className="btn btn-ghost" onClick={() => setEnvModal(false)} disabled={enviando} style={{ flex: 1 }}>Cancelar</button>
-              <button
-                className="btn btn-primary"
-                onClick={confirmarEnvio}
-                disabled={enviando || integracoes.length === 0 || !integSel}
-                style={{ flex: 2 }}
-              >
-                {enviando ? "Enviando..." : `Confirmar envio de ${sel.size}`}
-              </button>
             </div>
-          </div>
-        </>
-      )}
+          </>
+        );
+      })()}
 
       {histOpen && (
         <>

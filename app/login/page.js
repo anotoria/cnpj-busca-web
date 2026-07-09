@@ -33,7 +33,7 @@ export default function LoginPage() {
       <div className="auth-wrap">
         <form className="auth-card" onSubmit={entrar}>
           <a href="/" className="brand-center" style={{ textDecoration: "none", color: "inherit" }}>
-            <span className="brand-mark">◎</span> Encontre o Lead
+            <span className="brand-mark">◎</span> Prospect AI
           </a>
           <h2>Entrar</h2>
           <p className="auth-sub">Acesse sua conta para buscar e exportar leads.</p>

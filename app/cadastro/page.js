@@ -46,11 +46,11 @@ function CadastroForm() {
     return (
       <div className="auth-card">
         <a href="/" className="brand-center" style={{ textDecoration: "none", color: "inherit" }}>
-          <span className="brand-mark">◎</span> Encontre o Lead
+          <span className="brand-mark">◎</span> Prospect AI
         </a>
         <h2>Cadastro por convite</h2>
         <div className="alert alert-info">
-          O cadastro no Encontre o Lead é feito <strong>apenas por convite</strong>. Peça o link de convite a quem te
+          O cadastro no Prospect AI é feito <strong>apenas por convite</strong>. Peça o link de convite a quem te
           indicou ou fale com o administrador.
         </div>
         <a className="btn btn-primary btn-full" href="/login">Já tenho conta — entrar</a>
@@ -62,7 +62,7 @@ function CadastroForm() {
     return (
       <div className="auth-card">
         <a href="/" className="brand-center" style={{ textDecoration: "none", color: "inherit" }}>
-          <span className="brand-mark">◎</span> Encontre o Lead
+          <span className="brand-mark">◎</span> Prospect AI
         </a>
         <h2>Cadastro recebido! ✅</h2>
         <div className="alert alert-ok">
@@ -77,7 +77,7 @@ function CadastroForm() {
   return (
     <form className="auth-card" onSubmit={cadastrar}>
       <a href="/" className="brand-center" style={{ textDecoration: "none", color: "inherit" }}>
-        <span className="brand-mark">◎</span> Encontre o Lead
+        <span className="brand-mark">◎</span> Prospect AI
       </a>
       <h2>Criar conta</h2>
       <p className="auth-sub">Você foi convidado — sua conta entra liberada com 3 dias de teste grátis.</p>

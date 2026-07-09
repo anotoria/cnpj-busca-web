@@ -3,8 +3,8 @@ import { adminFetch } from "../../../../lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
 
-// Status de envio (mais recente) para uma lista de CNPJs do usuário.
-// GET /api/integracoes/enviados?cnpjs=111,222,...  → { status: { cnpj: "enviado"|"parcial"|"erro" } }
+// Status de envio (mais recente por canal) para uma lista de CNPJs do usuário.
+// Retorna: { status: { cnpj: { highlevel?: "enviado"|"parcial"|"erro", webhook?: "..." } } }
 export async function GET(request) {
   const g = await requireApproved();
   if (!g.ok) return g.response;
@@ -16,12 +16,13 @@ export async function GET(request) {
   if (!lista.length) return Response.json({ status: {} });
 
   const rows = await adminFetch(
-    `crm_envios?user_id=eq.${g.access.userId}&cnpj=in.(${lista.join(",")})&select=cnpj,status,criado_em&order=criado_em.desc`
+    `crm_envios?user_id=eq.${g.access.userId}&cnpj=in.(${lista.join(",")})&select=cnpj,canal,status,criado_em&order=criado_em.desc`
   );
   const status = {};
   for (const r of rows || []) {
-    // Mantém o status do envio mais recente (rows já vem desc).
-    if (!(r.cnpj in status)) status[r.cnpj] = r.status;
+    const canal = r.canal || "highlevel";
+    if (!status[r.cnpj]) status[r.cnpj] = {};
+    if (!status[r.cnpj][canal]) status[r.cnpj][canal] = r.status; // 1o (desc) = mais recente
   }
   return Response.json({ status });
 }

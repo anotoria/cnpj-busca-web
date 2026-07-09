@@ -1,7 +1,7 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "Encontre o Lead — Seu futuro cliente está aqui",
+  title: "Prospect AI — Seu futuro cliente está aqui",
   description:
     "Busque por empresas Brasileiras. Filtre por nicho, região e porte, e exporte o resultado em CSV.",
 };

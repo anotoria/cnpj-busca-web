@@ -1,5 +1,5 @@
 /* ============================================================
-   Encontre o Lead — design system
+   Prospect AI — design system
    Estética: editorial clean (ref. lessie.ai) em vermelho-alaranjado.
    Fundo quase-branco quente + auras de gradiente, serif no display,
    cartões brancos de cantos largos, pills, sombras suaves.
@@ -1136,3 +1136,18 @@ tr.row-sel td {
 .send-dot.ok { background: var(--ok); }
 .send-dot.warn { background: var(--warn); }
 .send-dot.bad { background: var(--bad); }
+.send-dot.info { background: #2b6cf5; }
+
+.send-dots { display: inline-flex; gap: 4px; }
+
+.chip-info { color: #1e5cd6; background: #e6efff; }
+
+.btn-webhook {
+  background: #2b6cf5;
+  color: #fff;
+  border: none;
+}
+.btn-webhook:hover:not(:disabled) {
+  background: #1e5cd6;
+  transform: translateY(-1px);
+}

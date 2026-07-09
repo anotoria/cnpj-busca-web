@@ -1,37 +1,34 @@
 import { requireApproved } from "../../../../lib/guard";
 import { adminFetch, adminWrite, audit } from "../../../../lib/supabase-admin";
-import { ensureCustomFields, sendLead } from "../../../../lib/highlevel";
-import { carregarEmpresa } from "../../../../lib/empresa-loader";
+import { buildPayload, postWebhook } from "../../../../lib/webhook";
+import { carregarEmpresa, qualMap } from "../../../../lib/empresa-loader";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-// Limite TOTAL por seleção (informado ao usuário). O cliente envia em lotes.
-export const LIMITE_TOTAL = 200;
-// Máximo processado por chamada (o cliente fatia a seleção nesses lotes).
 const LOTE_MAX = 20;
 
 export async function POST(request) {
   const g = await requireApproved();
   if (!g.ok) return g.response;
   try {
-    const { integracao_id, cnpjs } = await request.json();
-    if (!integracao_id || !Array.isArray(cnpjs) || cnpjs.length === 0) {
-      return Response.json({ error: "Informe a integração e ao menos um registro." }, { status: 400 });
+    const { webhook_id, cnpjs } = await request.json();
+    if (!webhook_id || !Array.isArray(cnpjs) || cnpjs.length === 0) {
+      return Response.json({ error: "Informe o webhook e ao menos um registro." }, { status: 400 });
     }
     if (cnpjs.length > LOTE_MAX) {
       return Response.json({ error: `Máximo ${LOTE_MAX} por lote.` }, { status: 400 });
     }
 
-    const integ = (await adminFetch(
-      `integracoes?id=eq.${integracao_id}&user_id=eq.${g.access.userId}&select=*`
+    const w = (await adminFetch(
+      `webhooks?id=eq.${webhook_id}&user_id=eq.${g.access.userId}&select=*`
     ))[0];
-    if (!integ) return Response.json({ error: "Integração não encontrada." }, { status: 404 });
-    if (!integ.ativo) return Response.json({ error: "Integração desativada." }, { status: 400 });
+    if (!w) return Response.json({ error: "Webhook não encontrado." }, { status: 404 });
+    if (!w.ativo) return Response.json({ error: "Webhook desativado." }, { status: 400 });
 
-    const cfMap = await ensureCustomFields(integ.private_token, integ.location_id);
-
+    const qm = await qualMap();
     const resultados = [];
+
     for (const cnpj of cnpjs) {
       const digits = String(cnpj).replace(/\D/g, "");
       try {
@@ -40,21 +37,22 @@ export async function POST(request) {
           resultados.push({ cnpj: digits, status: "erro", error: "Empresa não encontrada." });
           continue;
         }
-        const r = await sendLead(integ.private_token, integ.location_id, cfMap, e);
+        const payload = buildPayload(e, e._socios_raw || [], qm, { integracao: w.nome });
+        const r = await postWebhook(w.url, payload);
         await adminWrite(
           "crm_envios",
           "POST",
           {
             user_id: g.access.userId,
-            integracao_id: integ.id,
-            canal: "highlevel",
+            webhook_id: w.id,
+            canal: "webhook",
             cnpj: digits,
             cnpj_basico: e.cnpj_basico,
             razao_social: e.razao_social,
             status: r.status,
-            ghl_business_id: r.business_id,
-            ghl_contact_ids: r.contact_ids,
             erro: r.error,
+            http_status: r.http_status,
+            response_snippet: r.snippet,
           },
           "return=minimal"
         );
@@ -64,8 +62,8 @@ export async function POST(request) {
       }
     }
 
-    audit(g.access.userId, "crm_envio_lote", {
-      integracao_id: integ.id,
+    audit(g.access.userId, "webhook_envio_lote", {
+      webhook_id: w.id,
       total: resultados.length,
       ok: resultados.filter((r) => r.status === "enviado").length,
     });

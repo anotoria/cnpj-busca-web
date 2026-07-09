@@ -30,7 +30,7 @@ export default function RecuperarSenhaPage() {
       <div className="auth-wrap">
         <form className="auth-card" onSubmit={solicitar}>
           <a href="/" className="brand-center" style={{ textDecoration: "none", color: "inherit" }}>
-            <span className="brand-mark">◎</span> Encontre o Lead
+            <span className="brand-mark">◎</span> Prospect AI
           </a>
           <h2>Recuperar senha</h2>
           {ok ? (

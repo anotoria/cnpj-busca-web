@@ -1,4 +1,4 @@
-export const metadata = { title: "Termos de Uso — Encontre o Lead" };
+export const metadata = { title: "Termos de Uso — Prospect AI" };
 
 export default function Termos() {
   return (
@@ -6,7 +6,7 @@ export default function Termos() {
       <div className="aura" />
       <div className="page" style={{ maxWidth: 760, margin: "0 auto", padding: "48px 24px 80px" }}>
         <a href="/" className="brand" style={{ textDecoration: "none", color: "inherit", marginBottom: 24 }}>
-          <span className="brand-mark">◎</span> Encontre o Lead
+          <span className="brand-mark">◎</span> Prospect AI
         </a>
         <h1 style={{ fontFamily: "var(--font-display)" }}>Termos de Uso</h1>
         <p style={{ color: "var(--ink-soft)" }}>
