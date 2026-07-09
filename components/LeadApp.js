@@ -421,7 +421,7 @@ export default function LeadApp() {
             <br />
             <em>Seu futuro cliente está aqui</em>
           </h1>
-          <p className="sub">Busque por empresas Brasileiras. Filtre e exporte o resultado em CSV.</p>
+          <p className="sub">Busque por empresas Brasileiras. Filtre e importe para o seu CRM.</p>
         </header>
 
         {flash && <div className="pending-banner" style={{ background: "var(--ok-tint)", color: "var(--ok)" }}>{flash}</div>}
@@ -665,7 +665,16 @@ export default function LeadApp() {
         </main>
 
         <footer className="footer">
-          Dados públicos oficiais (Lei 12.527/2011). Atualização mensal.
+          <div className="footer-links">
+            <a href="/termos">Termos de Uso</a>
+            <span>·</span>
+            <a href="/privacidade">Política de Privacidade</a>
+            <span>·</span>
+            <a href="/cookies">Cookies</a>
+            <span>·</span>
+            <a href="/lgpd">LGPD</a>
+          </div>
+          <div className="footer-copy">© {new Date().getFullYear()} Prospect AI. Busca online de empresas brasileiras.</div>
         </footer>
       </div>
 

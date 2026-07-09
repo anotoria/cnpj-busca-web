@@ -1151,3 +1151,141 @@ tr.row-sel td {
   background: #1e5cd6;
   transform: translateY(-1px);
 }
+
+/* ---------- Rodapé com links legais ---------- */
+.footer {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  padding: 24px 16px 40px;
+}
+.footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+.footer-links a {
+  color: var(--ink-soft);
+  text-decoration: none;
+  transition: color 0.15s;
+}
+.footer-links a:hover {
+  color: var(--primary-deep);
+}
+.footer-links span {
+  color: var(--ink-faint);
+}
+.footer-copy {
+  font-size: 12px;
+  color: var(--ink-faint);
+  text-align: center;
+}
+
+/* ---------- Páginas legais ---------- */
+.legal-page {
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 48px 24px 100px;
+  color: var(--ink);
+  line-height: 1.7;
+}
+.legal-page h1 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 34px;
+  letter-spacing: -0.01em;
+  margin: 8px 0 6px;
+}
+.legal-page h2 {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 600;
+  margin: 32px 0 10px;
+}
+.legal-page h3 {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 600;
+  margin: 20px 0 6px;
+  color: var(--ink);
+}
+.legal-page p, .legal-page ul, .legal-page li {
+  color: var(--ink-soft);
+  font-size: 15px;
+}
+.legal-page ul {
+  padding-left: 22px;
+}
+.legal-page a {
+  color: var(--primary-deep);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.legal-page .legal-sub {
+  color: var(--ink-faint);
+  font-size: 13px;
+  margin-bottom: 22px;
+}
+.legal-page .legal-footer {
+  margin-top: 48px;
+  font-size: 14px;
+}
+
+/* ---------- Banner de cookies ---------- */
+.cookie-banner {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  z-index: 80;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: 0 20px 60px -15px rgba(34, 21, 17, 0.28);
+  animation: cookieUp 0.35s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+@keyframes cookieUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.cookie-inner {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 16px 20px;
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.cookie-text {
+  flex: 1 1 320px;
+  min-width: 260px;
+}
+.cookie-text strong {
+  display: block;
+  font-size: 14.5px;
+  margin-bottom: 4px;
+}
+.cookie-text p {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+.cookie-text a {
+  color: var(--primary-deep);
+  text-decoration: underline;
+}
+.cookie-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+@media (max-width: 520px) {
+  .cookie-actions { width: 100%; }
+  .cookie-actions .btn { flex: 1; }
+}

@@ -1,4 +1,5 @@
 import "./globals.css";
+import CookieBanner from "../components/CookieBanner";
 
 export const metadata = {
   title: "Prospect AI — Seu futuro cliente está aqui",
@@ -17,7 +18,10 @@ export default function RootLayout({ children }) {
           rel="stylesheet"
         />
       </head>
-      <body>{children}</body>
+      <body>
+        {children}
+        <CookieBanner />
+      </body>
     </html>
   );
 }
