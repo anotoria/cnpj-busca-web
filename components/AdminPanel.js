@@ -109,6 +109,16 @@ export default function AdminPanel({ nome }) {
     carregarUsuarios();
   }
 
+  async function trocarPapel(u, novoPapel) {
+    if ((u.role || "user") === novoPapel) return;
+    const nomeExib = u.nome || u.email || "este usuário";
+    const msg = novoPapel === "admin"
+      ? `Promover ${nomeExib} a administrador?\n\nEle terá acesso total ao painel administrativo (aprovar/rejeitar usuários, alterar planos, disparar atualização da base, ver logs).`
+      : `Rebaixar ${nomeExib} a usuário comum?\n\nEle perderá o acesso ao painel administrativo.`;
+    if (!confirm(msg)) return;
+    return acao(u.id, "role", novoPapel);
+  }
+
   async function definirSenha(id) {
     const s = prompt("Nova senha para este usuário (mínimo 8 caracteres):");
     if (!s) return;
@@ -340,13 +350,26 @@ export default function AdminPanel({ nome }) {
                     <tr key={u.id}>
                       <td>{u.nome}</td>
                       <td>{u.email}</td>
-                      <td>{u.role === "admin" ? "Admin" : "Usuário"}</td>
+                      <td>
+                        <select
+                          className="role-select"
+                          value={u.role || "user"}
+                          onChange={(e) => trocarPapel(u, e.target.value)}
+                          title={u.role === "admin" ? "Este usuário é administrador" : "Este usuário tem perfil comum"}
+                        >
+                          <option value="user">Usuário</option>
+                          <option value="admin">Admin</option>
+                        </select>
+                      </td>
                       <td><span className={STATUS_CLASS[u.status]}>{u.status === "aprovado" ? "ativo" : u.status === "desativado" ? "inativo" : u.status}</span></td>
                       <td><span className={"status-pill " + (u.plano === "plano" ? "st-aprovado" : "st-desativado")}>{u.plano === "plano" ? "Plano" : "Sem plano"}</span></td>
                       <td>{u.role === "admin" || u.plano === "plano" ? "—" : t ? (t.vencido ? <span style={{ color: "var(--bad)" }}>vencido há {t.dias}d</span> : <span style={{ color: "var(--ok)" }}>expira em {t.dias}d</span>) : <span style={{ color: "var(--ink-faint)" }}>sem trial</span>}</td>
                       <td>{u.origem}</td>
                       <td style={{ whiteSpace: "nowrap" }}>{new Date(u.criado_em).toLocaleDateString("pt-BR")}</td>
                       <td style={{ whiteSpace: "nowrap" }}>
+                        {u.role !== "admin"
+                          ? <button className="mini-btn role-up" onClick={() => trocarPapel(u, "admin")} title="Promover a administrador">⬆ Promover a Admin</button>
+                          : <button className="mini-btn role-down" onClick={() => trocarPapel(u, "user")} title="Rebaixar a usuário comum">⬇ Rebaixar</button>}
                         {u.status === "pendente" && <>
                           <button className="mini-btn" onClick={() => acao(u.id, "status", "aprovado")}>Aprovar</button>
                           <button className="mini-btn danger" onClick={() => acao(u.id, "status", "rejeitado")}>Rejeitar</button>
@@ -360,9 +383,6 @@ export default function AdminPanel({ nome }) {
                         {u.plano === "sem_plano" && u.role !== "admin" && <button className="mini-btn" onClick={() => acao(u.id, "trial", 3)}>Trial +3d</button>}
                         <button className="mini-btn" onClick={() => acao(u.id, "reset_senha")}>Resetar senha</button>
                         <button className="mini-btn" onClick={() => definirSenha(u.id)}>Definir senha</button>
-                        {u.role !== "admin"
-                          ? <button className="mini-btn" onClick={() => acao(u.id, "role", "admin")}>→ Admin</button>
-                          : <button className="mini-btn" onClick={() => acao(u.id, "role", "user")}>→ Usuário</button>}
                       </td>
                     </tr>
                   );

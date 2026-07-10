@@ -1405,3 +1405,47 @@ tr.row-sel td {
   margin-left: 4px;
   cursor: help;
 }
+
+/* ---------- Admin: seletor de papel na coluna e botões de promoção ---------- */
+.role-select {
+  font-family: var(--font-body);
+  font-size: 13px;
+  padding: 5px 26px 5px 10px;
+  border-radius: 8px;
+  border: 1.5px solid var(--line);
+  background: #fff url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%23a3958c' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>") no-repeat right 8px center;
+  color: var(--ink);
+  cursor: pointer;
+  appearance: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.role-select:hover {
+  border-color: var(--ink-faint);
+}
+.role-select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(232, 64, 28, 0.14);
+}
+
+.mini-btn.role-up {
+  background: var(--warn-tint);
+  color: var(--warn);
+  border-color: rgba(154, 103, 0, 0.35);
+  font-weight: 600;
+}
+.mini-btn.role-up:hover {
+  background: var(--warn);
+  color: #fff;
+  border-color: var(--warn);
+}
+.mini-btn.role-down {
+  background: var(--card);
+  color: var(--ink-soft);
+  border-color: var(--line);
+}
+.mini-btn.role-down:hover {
+  background: var(--bad-tint);
+  color: var(--bad);
+  border-color: rgba(179, 38, 30, 0.35);
+}
