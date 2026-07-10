@@ -79,43 +79,66 @@ export async function GET(request) {
       return t === "*" || t === null ? null : parseInt(t, 10);
     }
 
-    const res = await fetch(url, { headers: restHeaders(rangeHeaders()), cache: "no-store" });
+    // PGRST103 (416): o offset pedido passou do fim real da consulta. Sem ORDER BY
+    // (necessário para não estourar o timeout ordenando milhões de linhas), a
+    // contagem exata pode variar entre chamadas — trata como "não há mais linhas"
+    // em vez de estourar um erro pro usuário.
+    function semMaisLinhas(status, body) {
+      return status === 416 || body.includes("PGRST103");
+    }
 
-    if (res.ok) {
-      rows = await res.json();
-      estimativa = parseEstimativa(res);
-    } else {
-      const body = await res.text();
-      if (!body.includes("57014")) {
-        return Response.json({ error: `PostgREST ${res.status}: ${body}` }, { status: 502 });
-      }
-      // Timeout de 3s. Busca textual → RPC indexado; senão → repete com a
-      // service key (sem o teto de 3s), que dá conta de filtros amplos.
-      if (filters.termo) {
-        const rpcRes = await fetch(restUrl(`rpc/busca_por_termo?select=${SELECT_COLUMNS.join(",")}`), {
-          method: "POST",
-          headers: serviceHeaders({ "Content-Type": "application/json" }),
-          body: JSON.stringify(rpcBodyFromFilters(filters, pageSize + 1, offset)),
-          cache: "no-store",
-        });
-        if (!rpcRes.ok) {
-          return Response.json({ error: `PostgREST ${rpcRes.status}: ${await rpcRes.text()}` }, { status: 502 });
+    if (filters.termo) {
+      // Busca textual: só o RPC usa o índice trigram. A query direta na view
+      // quase sempre estoura o timeout — e quando não estoura, sem ORDER BY,
+      // pode achar um conjunto/contagem diferente do RPC, quebrando a paginação
+      // entre páginas. Vai direto pro caminho indexado, sempre.
+      const rpcRes = await fetch(restUrl(`rpc/busca_por_termo?select=${SELECT_COLUMNS.join(",")}`), {
+        method: "POST",
+        headers: serviceHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify(rpcBodyFromFilters(filters, pageSize + 1, offset)),
+        cache: "no-store",
+      });
+      if (!rpcRes.ok) {
+        const body = await rpcRes.text();
+        if (!semMaisLinhas(rpcRes.status, body)) {
+          return Response.json({ error: `PostgREST ${rpcRes.status}: ${body}` }, { status: 502 });
         }
-        rows = await rpcRes.json();
       } else {
-        const res2 = await fetch(url, { headers: serviceHeaders(rangeHeaders()), cache: "no-store" });
-        if (!res2.ok) {
-          const b2 = await res2.text();
-          if (b2.includes("57014")) {
-            return Response.json(
-              { error: "A busca ficou muito ampla e excedeu o tempo limite. Refine com UF, município ou atividade/nicho." },
-              { status: 504 }
-            );
+        rows = await rpcRes.json();
+      }
+    } else {
+      const res = await fetch(url, { headers: restHeaders(rangeHeaders()), cache: "no-store" });
+
+      if (res.ok) {
+        rows = await res.json();
+        estimativa = parseEstimativa(res);
+      } else {
+        const body = await res.text();
+        if (semMaisLinhas(res.status, body)) {
+          // rows fica []
+        } else if (!body.includes("57014")) {
+          return Response.json({ error: `PostgREST ${res.status}: ${body}` }, { status: 502 });
+        } else {
+          // Timeout de 3s. Repete com a service key (sem o teto de 3s), que dá
+          // conta de filtros amplos.
+          const res2 = await fetch(url, { headers: serviceHeaders(rangeHeaders()), cache: "no-store" });
+          if (!res2.ok) {
+            const b2 = await res2.text();
+            if (semMaisLinhas(res2.status, b2)) {
+              // rows fica []
+            } else if (b2.includes("57014")) {
+              return Response.json(
+                { error: "A busca ficou muito ampla e excedeu o tempo limite. Refine com UF, município ou atividade/nicho." },
+                { status: 504 }
+              );
+            } else {
+              return Response.json({ error: `PostgREST ${res2.status}: ${b2}` }, { status: 502 });
+            }
+          } else {
+            rows = await res2.json();
+            estimativa = parseEstimativa(res2);
           }
-          return Response.json({ error: `PostgREST ${res2.status}: ${b2}` }, { status: 502 });
         }
-        rows = await res2.json();
-        estimativa = parseEstimativa(res2);
       }
     }
 
@@ -125,6 +148,14 @@ export async function GET(request) {
 
     // Contagem honesta: na última página sabemos o total exato.
     if (!hasMore) total = offset + rows.length;
+
+    // "count=planned" é só uma estimativa do planner do Postgres e pode vir bem
+    // menor que o real em buscas com ilike — nunca mostra menos do que já
+    // sabemos de fato que existe (offset + linhas que vieram nesta página).
+    if (total == null) {
+      const conhecidoNoMinimo = offset + rows.length;
+      if (estimativa == null || estimativa < conhecidoNoMinimo) estimativa = conhecidoNoMinimo;
+    }
 
     // Demo: só a 1ª página, nunca "próxima".
     if (isDemo) hasMore = false;
