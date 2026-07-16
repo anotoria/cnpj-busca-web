@@ -29,6 +29,15 @@ export async function GET(request) {
     const { searchParams } = new URL(request.url);
     const filters = filtersFromRequest(searchParams);
 
+    // Termo muito curto não usa o índice trigram e varre a base inteira —
+    // estoura o tempo limite da Vercel e volta uma página de erro em texto.
+    if (filters.termo && filters.termo.trim().length < 3) {
+      return Response.json(
+        { error: "Digite pelo menos 3 letras no campo de busca (ou deixe-o vazio e use os filtros)." },
+        { status: 400 }
+      );
+    }
+
     // Portão de acesso: define paginação máxima e se os contatos são visíveis.
     // Demo/modo leitura: anônimo, pendente e trial expirado (sem plano).
     const access = await getAccess();
@@ -37,7 +46,10 @@ export async function GET(request) {
     if (filters.municipio) {
       const codes = await resolveMunicipioCodes(filters.municipio);
       if (codes && codes.length === 0) {
-        return Response.json({ rows: [], page: 1, pageSize: 0, total: 0, demo: isDemo });
+        return Response.json({
+          rows: [], page: 1, pageSize: 0, total: 0, demo: isDemo,
+          aviso: `Nenhum município corresponde a "${filters.municipio}". Escolha um da lista de sugestões.`,
+        });
       }
       if (codes) filters.municipioCodes = codes;
     }
@@ -45,7 +57,10 @@ export async function GET(request) {
     if (filters.cnae) {
       const codes = await resolveCnaeCodes(filters.cnae);
       if (codes && codes.length === 0) {
-        return Response.json({ rows: [], page: 1, pageSize: 0, total: 0, demo: isDemo });
+        return Response.json({
+          rows: [], page: 1, pageSize: 0, total: 0, demo: isDemo,
+          aviso: `Nenhuma atividade corresponde a "${filters.cnae}". Clique no campo Atividade/Nicho e escolha uma opção da lista.`,
+        });
       }
       if (codes) filters.cnaeCodes = codes;
     }

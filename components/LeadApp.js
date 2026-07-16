@@ -128,8 +128,12 @@ export default function LeadApp() {
   const [error, setError] = useState("");
   const [searched, setSearched] = useState(false);
   const [demo, setDemo] = useState(false);
+  const [aviso, setAviso] = useState("");
   const [municipioOpcoes, setMunicipioOpcoes] = useState([]);
-  const [cnaeOpcoes, setCnaeOpcoes] = useState([]);
+  // Atividade/Nicho: combobox com a lista completa de atividades (carregada no 1º clique).
+  const [cnaeLista, setCnaeLista] = useState(null);
+  const [cnaeOpen, setCnaeOpen] = useState(false);
+  const [cnaeSel, setCnaeSel] = useState(null); // {codigo, descricao} escolhido na lista
   const [paywall, setPaywall] = useState(false);
   const [flash, setFlash] = useState("");
   // Integração (HighLevel e Webhook): seleção e envio.
@@ -287,16 +291,47 @@ export default function LeadApp() {
     }
   }
 
-  async function onCnaeChange(v) {
-    set("cnae", v);
-    if (v.trim().length < 3 || /^\d+$/.test(v.trim())) return setCnaeOpcoes([]);
+  // Sem acentos e minúsculo, para o filtro da lista de atividades.
+  function normalizar(s) {
+    return String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+  }
+
+  async function abrirCnae() {
+    setCnaeOpen(true);
+    if (cnaeLista) return;
     try {
-      const d = await (await fetch(`/api/cnaes?q=${encodeURIComponent(v)}`)).json();
-      setCnaeOpcoes((d.rows || []).map((c) => c.descricao));
+      const d = await (await fetch("/api/cnaes?all=1")).json();
+      setCnaeLista(d.rows || []);
     } catch {
-      setCnaeOpcoes([]);
+      setCnaeLista([]);
     }
   }
+
+  function escolherCnae(c) {
+    setCnaeSel(c);
+    set("cnae", c.codigo); // envia o código exato — busca precisa e rápida
+    setCnaeOpen(false);
+  }
+
+  function digitarCnae(v) {
+    setCnaeSel(null);
+    set("cnae", v);
+    if (!cnaeOpen) abrirCnae();
+  }
+
+  // Texto exibido no campo e lista filtrada pelo que foi digitado.
+  const cnaeTexto = cnaeSel ? cnaeSel.descricao : filters.cnae;
+  const cnaeFiltradas = (() => {
+    if (!cnaeLista) return null;
+    const toks = normalizar(cnaeSel ? "" : filters.cnae).split(/\s+/).filter(Boolean);
+    const base = toks.length
+      ? cnaeLista.filter((c) => {
+          const n = normalizar(c.descricao) + " " + c.codigo;
+          return toks.every((t) => n.includes(t));
+        })
+      : cnaeLista;
+    return base.slice(0, 200);
+  })();
 
   function toQuery(f, extra = {}) {
     const q = new URLSearchParams();
@@ -316,18 +351,33 @@ export default function LeadApp() {
   }
 
   async function buscar(p = 1, f = filters) {
+    const termo = String(f.termo || "").trim();
+    if (termo && termo.length < 3) {
+      setError("Digite pelo menos 3 letras no campo de busca (ou deixe-o vazio e use os filtros).");
+      return;
+    }
     setLoading(true);
     setError("");
+    setAviso("");
     setSearched(true);
     try {
       const res = await fetch(`/api/buscar?${toQuery(f, { page: p, pageSize })}`);
-      const data = await res.json();
+      // A resposta pode não ser JSON (ex.: página de timeout da Vercel em
+      // buscas muito amplas) — trata isso com uma mensagem amigável.
+      const texto = await res.text();
+      let data;
+      try {
+        data = JSON.parse(texto);
+      } catch {
+        throw new Error("A busca demorou demais e foi interrompida. Refine com UF, município ou atividade/nicho e tente de novo.");
+      }
       if (!res.ok) throw new Error(data.error || "Erro na busca");
       setRows(data.rows || []);
       setTotal(data.total);
       setEstimativa(data.estimativa);
       setHasMore(!!data.hasMore);
       setDemo(!!data.demo);
+      setAviso(data.aviso || "");
       setPage(p);
     } catch (e) {
       setError(e.message);
@@ -364,6 +414,9 @@ export default function LeadApp() {
   function reexecutar(f) {
     const novo = { ...EMPTY, ...f };
     setFilters(novo);
+    // Se o filtro de atividade era um código escolhido na lista, restaura a descrição.
+    const achado = cnaeLista && novo.cnae ? cnaeLista.find((c) => c.codigo === String(novo.cnae)) : null;
+    setCnaeSel(achado || null);
     setHistOpen(false);
     buscar(1, novo);
   }
@@ -473,11 +526,52 @@ export default function LeadApp() {
                   onChange={(e) => onMunicipioChange(e.target.value)} placeholder="Digite 2+ letras" />
                 <datalist id="municipios-list">{municipioOpcoes.map((m) => <option key={m} value={m} />)}</datalist>
               </div>
-              <div className="field">
+              <div className="field combo">
                 <label>Atividade / Nicho</label>
-                <input className="input" list="cnaes-list" value={filters.cnae}
-                  onChange={(e) => onCnaeChange(e.target.value)} placeholder="farmácias, pet shop..." />
-                <datalist id="cnaes-list">{cnaeOpcoes.map((c) => <option key={c} value={c} />)}</datalist>
+                <input
+                  className="input combo-input"
+                  value={cnaeTexto}
+                  onChange={(e) => digitarCnae(e.target.value)}
+                  onFocus={abrirCnae}
+                  onClick={abrirCnae}
+                  onKeyDown={(e) => { if (e.key === "Escape") setCnaeOpen(false); }}
+                  onBlur={() => setTimeout(() => setCnaeOpen(false), 150)}
+                  placeholder="Clique e escolha na lista..."
+                  title={cnaeSel ? `${cnaeSel.descricao} (${cnaeSel.codigo})` : undefined}
+                />
+                {(cnaeSel || filters.cnae) ? (
+                  <button
+                    type="button"
+                    className="combo-clear"
+                    aria-label="Limpar atividade"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => { setCnaeSel(null); set("cnae", ""); }}
+                  >×</button>
+                ) : (
+                  <span className="combo-caret" aria-hidden="true">▾</span>
+                )}
+                {cnaeOpen && (
+                  <div className="combo-list" onMouseDown={(e) => e.preventDefault()}>
+                    {!cnaeFiltradas && <div className="combo-empty">Carregando atividades...</div>}
+                    {cnaeFiltradas && cnaeFiltradas.length === 0 && (
+                      <div className="combo-empty">Nenhuma atividade com esse texto. Tente outra palavra (ex.: estética, farmácia, transporte).</div>
+                    )}
+                    {cnaeFiltradas && cnaeFiltradas.map((c) => (
+                      <button
+                        type="button"
+                        key={c.codigo}
+                        className={"combo-item" + (cnaeSel && cnaeSel.codigo === c.codigo ? " sel" : "")}
+                        onClick={() => escolherCnae(c)}
+                      >
+                        <span className="combo-desc">{c.descricao}</span>
+                        <span className="combo-code">{c.codigo}</span>
+                      </button>
+                    ))}
+                    {cnaeFiltradas && cnaeFiltradas.length === 200 && (
+                      <div className="combo-empty">Mostrando as 200 primeiras — digite para refinar.</div>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="field">
                 <label>Situação cadastral</label>
@@ -517,11 +611,13 @@ export default function LeadApp() {
               </button>
               <button type="button" className="btn btn-ghost" onClick={() => {
                 setFilters(EMPTY); setRows([]); setTotal(null); setSearched(false);
+                setCnaeSel(null); setAviso(""); setError("");
               }}>Limpar</button>
             </div>
           </form>
 
           {error && <div className="error-box">{error}</div>}
+          {aviso && !error && <div className="aviso-box">⚠️ {aviso}</div>}
 
           {searched && !error && (
             <section className="results">

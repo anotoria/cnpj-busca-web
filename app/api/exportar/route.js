@@ -183,6 +183,14 @@ export async function GET(request) {
     const { searchParams } = new URL(request.url);
     const filters = filtersFromRequest(searchParams);
 
+    // Termo com menos de 3 letras não usa o índice trigram e trava a exportação.
+    if (filters.termo && filters.termo.trim().length < 3) {
+      return Response.json(
+        { error: "Digite pelo menos 3 letras no campo de busca antes de exportar." },
+        { status: 400 }
+      );
+    }
+
     // Portão de acesso.
     const access = await getAccess();
     if (!hasFullAccess(access)) {
